@@ -142,6 +142,13 @@ test.describe('Sensor Form', () => {
     const row = page.locator('tr', { hasText: 'UI Form Test Sensor' })
     await expect(row.locator('span', { hasText: 'Bash' })).toBeVisible()
   })
+
+  test('verify cron task created for sensor', async () => {
+    const tasks = await ipc.listCronTasks() as { name: string; type: string; enabled: boolean }[]
+    const sensorTask = tasks.find(t => t.type === 'sensor' && t.name.includes('UI Form Test Sensor'))
+    expect(sensorTask).toBeDefined()
+    expect(sensorTask!.enabled).toBe(true)
+  })
 })
 
 // --- Alert Form Tests ---
@@ -205,6 +212,13 @@ test.describe('Alert Form', () => {
     const row = page.locator('tr', { hasText: 'UI Form Test Alert' })
     await expect(row.locator('span', { hasText: 'OK' })).toBeVisible()
   })
+
+  test('verify cron task created for alert', async () => {
+    const tasks = await ipc.listCronTasks() as { name: string; type: string; enabled: boolean }[]
+    const alertTask = tasks.find(t => t.type === 'alert' && t.name.includes('UI Form Test Alert'))
+    expect(alertTask).toBeDefined()
+    expect(alertTask!.enabled).toBe(true)
+  })
 })
 
 // --- Notification Form Tests ---
@@ -250,6 +264,13 @@ test.describe('Notification Form', () => {
   test('verify notification shows Desktop method', async () => {
     const row = page.locator('tr', { hasText: 'UI Form Test Notification' })
     await expect(row.locator('text=Desktop')).toBeVisible()
+  })
+
+  test('verify cron task created for notification', async () => {
+    const tasks = await ipc.listCronTasks() as { name: string; type: string; enabled: boolean }[]
+    const notifTask = tasks.find(t => t.type === 'notification' && t.name.includes('UI Form Test Notification'))
+    expect(notifTask).toBeDefined()
+    expect(notifTask!.enabled).toBe(true)
   })
 })
 

@@ -47,9 +47,18 @@ export class IpcBridgeService implements OnModuleInit {
   private registerSensorHandlers() {
     ipcMain.handle(IPC_CHANNELS.SENSOR_LIST, async () => this.sensors.list())
     ipcMain.handle(IPC_CHANNELS.SENSOR_GET, async (_event, id: string) => this.sensors.get(id))
-    ipcMain.handle(IPC_CHANNELS.SENSOR_CREATE, async (_event, data: CreateSensor) => this.sensors.create(data))
-    ipcMain.handle(IPC_CHANNELS.SENSOR_UPDATE, async (_event, data: UpdateSensor) => this.sensors.update(data))
+    ipcMain.handle(IPC_CHANNELS.SENSOR_CREATE, async (_event, data: CreateSensor) => {
+      const sensor = await this.sensors.create(data)
+      await this.cron.refreshEntity('sensor', sensor.id)
+      return sensor
+    })
+    ipcMain.handle(IPC_CHANNELS.SENSOR_UPDATE, async (_event, data: UpdateSensor) => {
+      const sensor = await this.sensors.update(data)
+      await this.cron.refreshEntity('sensor', data.id)
+      return sensor
+    })
     ipcMain.handle(IPC_CHANNELS.SENSOR_DELETE, async (_event, id: string) => {
+      await this.cron.removeEntity('sensor', id)
       await this.sensors.delete(id)
       return { success: true }
     })
@@ -71,9 +80,18 @@ export class IpcBridgeService implements OnModuleInit {
   private registerAlertHandlers() {
     ipcMain.handle(IPC_CHANNELS.ALERT_LIST, async () => this.alerts.list())
     ipcMain.handle(IPC_CHANNELS.ALERT_GET, async (_event, id: string) => this.alerts.get(id))
-    ipcMain.handle(IPC_CHANNELS.ALERT_CREATE, async (_event, data: CreateAlert) => this.alerts.create(data))
-    ipcMain.handle(IPC_CHANNELS.ALERT_UPDATE, async (_event, data: UpdateAlert) => this.alerts.update(data))
+    ipcMain.handle(IPC_CHANNELS.ALERT_CREATE, async (_event, data: CreateAlert) => {
+      const alert = await this.alerts.create(data)
+      await this.cron.refreshEntity('alert', alert.id)
+      return alert
+    })
+    ipcMain.handle(IPC_CHANNELS.ALERT_UPDATE, async (_event, data: UpdateAlert) => {
+      const alert = await this.alerts.update(data)
+      await this.cron.refreshEntity('alert', data.id)
+      return alert
+    })
     ipcMain.handle(IPC_CHANNELS.ALERT_DELETE, async (_event, id: string) => {
+      await this.cron.removeEntity('alert', id)
       await this.alerts.delete(id)
       return { success: true }
     })
@@ -135,9 +153,18 @@ export class IpcBridgeService implements OnModuleInit {
   private registerNotificationHandlers() {
     ipcMain.handle(IPC_CHANNELS.NOTIFICATION_LIST, async () => this.notifications.list())
     ipcMain.handle(IPC_CHANNELS.NOTIFICATION_GET, async (_event, id: string) => this.notifications.get(id))
-    ipcMain.handle(IPC_CHANNELS.NOTIFICATION_CREATE, async (_event, data: CreateNotification) => this.notifications.create(data))
-    ipcMain.handle(IPC_CHANNELS.NOTIFICATION_UPDATE, async (_event, data: UpdateNotification) => this.notifications.update(data))
+    ipcMain.handle(IPC_CHANNELS.NOTIFICATION_CREATE, async (_event, data: CreateNotification) => {
+      const notif = await this.notifications.create(data)
+      await this.cron.refreshEntity('notification', notif.id)
+      return notif
+    })
+    ipcMain.handle(IPC_CHANNELS.NOTIFICATION_UPDATE, async (_event, data: UpdateNotification) => {
+      const notif = await this.notifications.update(data)
+      await this.cron.refreshEntity('notification', data.id)
+      return notif
+    })
     ipcMain.handle(IPC_CHANNELS.NOTIFICATION_DELETE, async (_event, id: string) => {
+      await this.cron.removeEntity('notification', id)
       await this.notifications.delete(id)
       return { success: true }
     })
