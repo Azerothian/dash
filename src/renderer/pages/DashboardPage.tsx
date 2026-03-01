@@ -183,7 +183,7 @@ export function DashboardPage() {
             />
           )}
           {editMode && currentDash && (
-            <div className="mt-4 flex justify-center">
+            <div className="relative z-10 mt-4 flex justify-center">
               <button
                 onClick={() => setShowAddPanel(true)}
                 className="flex items-center gap-2 rounded-md border-2 border-dashed border-border px-6 py-3 text-sm text-muted-foreground hover:border-primary hover:text-primary"
