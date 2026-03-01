@@ -106,10 +106,7 @@ test.describe('Sensor Form', () => {
     const scriptTextarea = page.locator('textarea').first()
     await scriptTextarea.fill("echo '{\"value\": 42}'")
 
-    // JSON selector should already be "$" but fill it to be sure
-    await page.locator('input[placeholder="$"]').fill('$')
-
-    // Add a table column: name="value", type="DOUBLE"
+    // Add a table column: name="value", type="DOUBLE", json_selector="$.value"
     await page.locator('button', { hasText: '+ Add Column' }).click()
     await page.waitForTimeout(300)
     const columnNameInput = page.locator('input[placeholder="Column name"]').first()
@@ -117,6 +114,10 @@ test.describe('Sensor Form', () => {
     // Select DOUBLE type for the column
     const columnTypeSelect = page.locator('select').last()
     await columnTypeSelect.selectOption('DOUBLE')
+
+    // Fill per-column JSON selector
+    const jsonSelectorInput = page.locator('input[placeholder="JSON selector"]').first()
+    await jsonSelectorInput.fill('$.value')
 
     // Click Save
     await page.locator('button', { hasText: 'Save' }).click()

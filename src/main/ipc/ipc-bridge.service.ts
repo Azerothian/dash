@@ -56,7 +56,7 @@ export class IpcBridgeService implements OnModuleInit {
     ipcMain.handle(IPC_CHANNELS.SENSOR_RUN, async (_event, id: string) => {
       const sensor = await this.sensors.get(id)
       if (!sensor) throw new Error(`Sensor ${id} not found`)
-      const result = await this.executor.execute(sensor.execution_type, sensor.script_content, sensor.json_selector, sensor.env_vars)
+      const result = await this.executor.execute(sensor.execution_type, sensor.script_content, sensor.table_definition, sensor.env_vars)
       if (result.success && result.data) {
         await this.sensors.insertData(id, result.data)
         this.broadcast(IPC_CHANNELS.SENSOR_DATA_UPDATED, id)

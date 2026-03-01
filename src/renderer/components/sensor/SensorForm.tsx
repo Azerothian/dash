@@ -26,7 +26,6 @@ export function SensorForm({ sensorId, onClose }: SensorFormProps) {
   const [description, setDescription] = useState('')
   const [executionType, setExecutionType] = useState<ExecutionType>('typescript')
   const [scriptContent, setScriptContent] = useState('')
-  const [jsonSelector, setJsonSelector] = useState('$')
   const [tableDefinition, setTableDefinition] = useState<ColumnDefinition[]>([
     { name: 'value', type: 'DOUBLE' },
   ])
@@ -42,7 +41,6 @@ export function SensorForm({ sensorId, onClose }: SensorFormProps) {
       setDescription(sensor.description)
       setExecutionType(sensor.execution_type)
       setScriptContent(sensor.script_content)
-      setJsonSelector(sensor.json_selector)
       setTableDefinition(sensor.table_definition)
       setCronExpression(sensor.cron_expression)
       setEnvVars(sensor.env_vars)
@@ -58,7 +56,6 @@ export function SensorForm({ sensorId, onClose }: SensorFormProps) {
       description,
       execution_type: executionType,
       script_content: scriptContent,
-      json_selector: jsonSelector,
       table_definition: tableDefinition,
       retention_rules: {
         ...(maxAgeDays ? { max_age_days: Number(maxAgeDays) } : {}),
@@ -169,17 +166,6 @@ export function SensorForm({ sensorId, onClose }: SensorFormProps) {
           />
         </div>
 
-        <div>
-          <label className="block text-sm font-medium mb-1">JSON Selector</label>
-          <input
-            type="text"
-            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono"
-            value={jsonSelector}
-            onChange={(e) => setJsonSelector(e.target.value)}
-            placeholder="$"
-          />
-        </div>
-
         <TableDefinitionEditor value={tableDefinition} onChange={setTableDefinition} />
 
         <div className="grid grid-cols-2 gap-4">
@@ -228,7 +214,7 @@ function TableDefinitionEditor({
   value: ColumnDefinition[]
   onChange: (v: ColumnDefinition[]) => void
 }) {
-  const add = () => onChange([...value, { name: '', type: 'VARCHAR' }])
+  const add = () => onChange([...value, { name: '', type: 'VARCHAR', json_selector: '' }])
   const remove = (i: number) => onChange(value.filter((_, idx) => idx !== i))
   const update = (i: number, field: keyof ColumnDefinition, val: string) =>
     onChange(value.map((col, idx) => (idx === i ? { ...col, [field]: val } : col)))
@@ -258,6 +244,13 @@ function TableDefinitionEditor({
               </option>
             ))}
           </select>
+          <input
+            type="text"
+            className="w-32 rounded-md border border-input bg-background px-3 py-1.5 text-sm font-mono"
+            value={col.json_selector || ''}
+            onChange={(e) => update(i, 'json_selector', e.target.value)}
+            placeholder="JSON selector"
+          />
           <button
             onClick={() => remove(i)}
             className="rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"

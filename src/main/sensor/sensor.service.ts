@@ -33,7 +33,7 @@ export class SensorService {
       data.description || '',
       data.execution_type,
       data.script_content,
-      data.json_selector || '$',
+      '$',
       JSON.stringify(data.table_definition),
       JSON.stringify(data.retention_rules || {}),
       data.cron_expression,
@@ -56,7 +56,6 @@ export class SensorService {
     if (data.description !== undefined) { fields.push('description = ?'); values.push(data.description) }
     if (data.execution_type !== undefined) { fields.push('execution_type = ?'); values.push(data.execution_type) }
     if (data.script_content !== undefined) { fields.push('script_content = ?'); values.push(data.script_content) }
-    if (data.json_selector !== undefined) { fields.push('json_selector = ?'); values.push(data.json_selector) }
     if (data.table_definition !== undefined) { fields.push('table_definition = ?'); values.push(JSON.stringify(data.table_definition)) }
     if (data.retention_rules !== undefined) { fields.push('retention_rules = ?'); values.push(JSON.stringify(data.retention_rules)) }
     if (data.cron_expression !== undefined) { fields.push('cron_expression = ?'); values.push(data.cron_expression) }
@@ -133,7 +132,6 @@ export class SensorService {
       description: (row.description as string) || '',
       execution_type: row.execution_type as Sensor['execution_type'],
       script_content: row.script_content as string,
-      json_selector: (row.json_selector as string) || '$',
       table_definition: typeof row.table_definition === 'string' ? JSON.parse(row.table_definition) : row.table_definition as Sensor['table_definition'],
       retention_rules: typeof row.retention_rules === 'string' ? JSON.parse(row.retention_rules) : (row.retention_rules as Sensor['retention_rules']) || {},
       cron_expression: row.cron_expression as string,

@@ -164,7 +164,7 @@ export class CronManagerService implements OnModuleInit {
     if (!sensor) return
     const result = await this.executor.execute(
       sensor.execution_type, sensor.script_content,
-      sensor.json_selector, sensor.env_vars,
+      sensor.table_definition, sensor.env_vars,
     )
     if (result.success && result.data) {
       await this.sensors.insertData(sensorId, result.data)

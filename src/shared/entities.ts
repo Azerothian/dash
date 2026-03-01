@@ -14,7 +14,6 @@ export interface Sensor {
   description: string
   execution_type: ExecutionType
   script_content: string
-  json_selector: string
   table_definition: ColumnDefinition[]
   retention_rules: RetentionRules
   cron_expression: string
@@ -27,6 +26,7 @@ export interface Sensor {
 export interface ColumnDefinition {
   name: string
   type: string
+  json_selector?: string
 }
 
 export interface RetentionRules {

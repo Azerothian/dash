@@ -5,7 +5,7 @@ import { join } from 'path'
 import { tmpdir } from 'os'
 import { v4 as uuidv4 } from 'uuid'
 import { JSONPath } from 'jsonpath-plus'
-import type { ExecutionType } from '@shared/entities'
+import type { ExecutionType, ColumnDefinition } from '@shared/entities'
 import { SettingsService } from '../settings/settings.service.js'
 
 export interface ExecutionResult {
@@ -22,7 +22,7 @@ export class ExecutorService {
   async execute(
     type: ExecutionType,
     script: string,
-    jsonSelector: string,
+    columns: ColumnDefinition[],
     envVars: Record<string, string>,
   ): Promise<ExecutionResult> {
     const start = Date.now()
@@ -50,13 +50,21 @@ export class ExecutorService {
       }
 
       const parsed = JSON.parse(rawOutput.trim())
-      const selected = jsonSelector && jsonSelector !== '$'
-        ? JSONPath({ path: jsonSelector, json: parsed, wrap: false })
-        : parsed
+
+      // Extract per-column values using each column's json_selector
+      const data: Record<string, unknown> = {}
+      for (const col of columns) {
+        if (col.json_selector) {
+          data[col.name] = JSONPath({ path: col.json_selector, json: parsed, wrap: false })
+        } else {
+          // Fallback: use column name as key into parsed object
+          data[col.name] = typeof parsed === 'object' && parsed !== null ? parsed[col.name] : undefined
+        }
+      }
 
       return {
         success: true,
-        data: typeof selected === 'object' ? selected : { value: selected },
+        data,
         duration: Date.now() - start,
       }
     } catch (error) {
