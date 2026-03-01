@@ -12,3 +12,6 @@ dist-renderer/
 *.deb
 .DS_Store
 Thumbs.db
+.omc/
+e2e-report/
+test-results/
