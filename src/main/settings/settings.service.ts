@@ -1,11 +1,11 @@
-import { Injectable } from '@nestjs/common'
+import { Injectable, Inject } from '@nestjs/common'
 import { DatabaseService } from '../database/database.service.js'
 import { DEFAULT_SETTINGS } from '@shared/constants'
 import type { Settings } from '@shared/entities'
 
 @Injectable()
 export class SettingsService {
-  constructor(private db: DatabaseService) {}
+  constructor(@Inject(DatabaseService) private db: DatabaseService) {}
 
   async get<K extends keyof Settings>(key: K): Promise<Settings[K]> {
     const row = await this.db.get<{ value: string }>(

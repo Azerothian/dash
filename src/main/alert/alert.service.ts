@@ -1,11 +1,11 @@
-import { Injectable } from '@nestjs/common'
+import { Injectable, Inject } from '@nestjs/common'
 import { v4 as uuidv4 } from 'uuid'
 import { DatabaseService } from '../database/database.service.js'
 import type { Alert, AlertHistory, AlertState, CreateAlert, UpdateAlert } from '@shared/entities'
 
 @Injectable()
 export class AlertService {
-  constructor(private db: DatabaseService) {}
+  constructor(@Inject(DatabaseService) private db: DatabaseService) {}
 
   async list(): Promise<Alert[]> {
     const rows = await this.db.all<Record<string, unknown>>('SELECT * FROM alert ORDER BY priority, name')

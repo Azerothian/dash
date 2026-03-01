@@ -1,11 +1,11 @@
-import { Injectable } from '@nestjs/common'
+import { Injectable, Inject } from '@nestjs/common'
 import { v4 as uuidv4 } from 'uuid'
 import { DatabaseService } from '../database/database.service.js'
 import type { Sensor, SensorData, CreateSensor, UpdateSensor } from '@shared/entities'
 
 @Injectable()
 export class SensorService {
-  constructor(private db: DatabaseService) {}
+  constructor(@Inject(DatabaseService) private db: DatabaseService) {}
 
   async list(): Promise<Sensor[]> {
     const rows = await this.db.all<Record<string, unknown>>('SELECT * FROM sensor ORDER BY name')

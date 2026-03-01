@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common'
+import { Injectable, Inject } from '@nestjs/common'
 import { exec } from 'child_process'
 import { writeFile, unlink } from 'fs/promises'
 import { join } from 'path'
@@ -17,7 +17,7 @@ export interface ExecutionResult {
 
 @Injectable()
 export class ExecutorService {
-  constructor(private settings: SettingsService) {}
+  constructor(@Inject(SettingsService) private settings: SettingsService) {}
 
   async execute(
     type: ExecutionType,

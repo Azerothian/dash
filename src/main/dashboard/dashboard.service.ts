@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common'
+import { Injectable, Inject } from '@nestjs/common'
 import { v4 as uuidv4 } from 'uuid'
 import { DatabaseService } from '../database/database.service.js'
 import type {
@@ -8,7 +8,7 @@ import type {
 
 @Injectable()
 export class DashboardService {
-  constructor(private db: DatabaseService) {}
+  constructor(@Inject(DatabaseService) private db: DatabaseService) {}
 
   async list(): Promise<Dashboard[]> {
     const rows = await this.db.all<Record<string, unknown>>(

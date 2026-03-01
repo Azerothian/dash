@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common'
+import { Injectable, Inject } from '@nestjs/common'
 import { v4 as uuidv4 } from 'uuid'
 import { DatabaseService } from '../database/database.service.js'
 import { AlertService } from '../alert/alert.service.js'
@@ -11,9 +11,9 @@ import type {
 @Injectable()
 export class NotificationService {
   constructor(
-    private db: DatabaseService,
-    private alerts: AlertService,
-    private settings: SettingsService,
+    @Inject(DatabaseService) private db: DatabaseService,
+    @Inject(AlertService) private alerts: AlertService,
+    @Inject(SettingsService) private settings: SettingsService,
   ) {}
 
   async list(): Promise<Notification[]> {

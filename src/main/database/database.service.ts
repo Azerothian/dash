@@ -1,17 +1,21 @@
 import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common'
-import * as duckdb from 'duckdb'
+import duckdb from 'duckdb'
 import { app } from 'electron'
 import { join } from 'path'
 
+// Handle CJS/ESM interop: duckdb may expose Database on default or as namespace
+const DuckDB = (duckdb as unknown as { default?: typeof duckdb }).default ?? duckdb
+
 @Injectable()
 export class DatabaseService implements OnModuleInit, OnModuleDestroy {
-  private db!: duckdb.Database
-  private connection!: duckdb.Connection
+  private db!: InstanceType<typeof DuckDB.Database>
+  private connection!: InstanceType<typeof DuckDB.Connection>
 
   async onModuleInit() {
-    const dbPath = join(app.getPath('userData'), 'dash.duckdb')
-    this.db = new duckdb.Database(dbPath)
-    this.connection = new duckdb.Connection(this.db)
+    const dbPath = process.env['DASH_TEST_DB_PATH']
+      ?? join(app.getPath('userData'), 'dash.duckdb')
+    this.db = new DuckDB.Database(dbPath)
+    this.connection = new DuckDB.Connection(this.db)
     await this.initSchema()
   }
 

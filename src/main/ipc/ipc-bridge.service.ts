@@ -1,4 +1,4 @@
-import { Injectable, OnModuleInit } from '@nestjs/common'
+import { Injectable, OnModuleInit, Inject } from '@nestjs/common'
 import { ipcMain, BrowserWindow } from 'electron'
 import { IPC_CHANNELS } from '@shared/ipc-channels'
 import { SettingsService } from '../settings/settings.service.js'
@@ -13,13 +13,13 @@ import type { Settings, CreateSensor, UpdateSensor, CreateAlert, UpdateAlert, Cr
 @Injectable()
 export class IpcBridgeService implements OnModuleInit {
   constructor(
-    private settings: SettingsService,
-    private sensors: SensorService,
-    private executor: ExecutorService,
-    private alerts: AlertService,
-    private dashboards: DashboardService,
-    private notifications: NotificationService,
-    private cron: CronManagerService,
+    @Inject(SettingsService) private settings: SettingsService,
+    @Inject(SensorService) private sensors: SensorService,
+    @Inject(ExecutorService) private executor: ExecutorService,
+    @Inject(AlertService) private alerts: AlertService,
+    @Inject(DashboardService) private dashboards: DashboardService,
+    @Inject(NotificationService) private notifications: NotificationService,
+    @Inject(CronManagerService) private cron: CronManagerService,
   ) {}
 
   onModuleInit() {

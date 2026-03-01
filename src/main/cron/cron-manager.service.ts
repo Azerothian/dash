@@ -1,4 +1,4 @@
-import { Injectable, OnModuleInit } from '@nestjs/common'
+import { Injectable, OnModuleInit, Inject } from '@nestjs/common'
 import * as schedule from 'node-schedule'
 import { SensorService } from '../sensor/sensor.service.js'
 import { ExecutorService } from '../sensor/executor.service.js'
@@ -25,10 +25,10 @@ export class CronManagerService implements OnModuleInit {
   private tasks = new Map<string, RegisteredTask>()
 
   constructor(
-    private sensors: SensorService,
-    private executor: ExecutorService,
-    private alerts: AlertService,
-    private notifications: NotificationService,
+    @Inject(SensorService) private sensors: SensorService,
+    @Inject(ExecutorService) private executor: ExecutorService,
+    @Inject(AlertService) private alerts: AlertService,
+    @Inject(NotificationService) private notifications: NotificationService,
   ) {}
 
   async onModuleInit() {

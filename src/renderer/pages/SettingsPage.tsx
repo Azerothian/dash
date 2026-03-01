@@ -68,7 +68,7 @@ export function SettingsPage() {
       </section>
 
       {/* Platform */}
-      {process.platform === 'win32' && (
+      {typeof process !== 'undefined' && process.platform === 'win32' && (
         <section className="space-y-4">
           <h2 className="text-lg font-medium">Platform (Windows)</h2>
           <div className="rounded-lg border border-border bg-card p-4">

@@ -88,7 +88,7 @@ export function SensorForm({ sensorId, onClose }: SensorFormProps) {
   }
 
   const availableTypes = EXECUTION_TYPES.filter(
-    (t) => !t.platform || t.platform === process.platform,
+    (t) => !t.platform || (typeof process !== 'undefined' && t.platform === process.platform),
   )
 
   return (
