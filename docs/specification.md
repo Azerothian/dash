@@ -82,7 +82,6 @@ erDiagram
         string description
         string execution_type "typescript|bash|docker|powershell"
         text script_content
-        string json_selector
         json table_definition
         json retention_rules
         string cron_expression
@@ -377,8 +376,7 @@ sequenceDiagram
 | `description` | string | no | max 500 chars | `""` |
 | `execution_type` | enum | yes | `typescript\|bash\|docker\|powershell` | — |
 | `script_content` | text | yes | non-empty | — |
-| `json_selector` | string | no | valid JSONPath expression | `"$"` |
-| `table_definition` | JSON | yes | valid column schema array | — |
+| `table_definition` | JSON | yes | array of `{ name: string, type: string, json_selector?: string }` | — |
 | `retention_rules` | JSON | no | `{ max_age_days?, max_rows? }` | `{}` |
 | `cron_expression` | string | yes | valid cron expression (5 or 6 fields) | — |
 | `env_vars` | JSON | no | `{ key: value }` object | `{}` |
