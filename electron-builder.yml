@@ -1,0 +1,46 @@
+appId: com.dash.app
+productName: Dash
+directories:
+  buildResources: build
+  output: dist
+files:
+  - out/**/*
+  - "!out/**/*.map"
+extraResources:
+  - from: node_modules/duckdb/lib/binding
+    to: duckdb-binding
+    filter:
+      - "**/*"
+asarUnpack:
+  - out/main/**/*
+  - node_modules/duckdb/**/*
+mac:
+  entitlementsInherit: build/entitlements.mac.plist
+  extendInfo:
+    NSDocumentsFolderUsageDescription: Dash needs access to store application data.
+  notarize: false
+  target:
+    - dmg
+    - zip
+dmg:
+  artifactName: ${name}-${version}.${ext}
+linux:
+  target:
+    - AppImage
+    - deb
+  maintainer: dash
+  category: Utility
+appImage:
+  artifactName: ${name}-${version}.${ext}
+win:
+  target:
+    - nsis
+nsis:
+  artifactName: ${name}-${version}-setup.${ext}
+  shortcutName: Dash
+  uninstallDisplayName: Dash
+  createDesktopShortcut: always
+publish:
+  provider: github
+  owner: dash
+  repo: dash

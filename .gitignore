@@ -1,0 +1,14 @@
+node_modules/
+out/
+dist/
+dist-main/
+dist-renderer/
+*.node
+.env
+.env.local
+*.dmg
+*.AppImage
+*.exe
+*.deb
+.DS_Store
+Thumbs.db
