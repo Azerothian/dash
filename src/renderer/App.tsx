@@ -30,13 +30,10 @@ export function App() {
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/dashboard/:id" element={<DashboardPage />} />
             <Route path="/sensors" element={<SensorsPage />} />
-            <Route path="/sensors/new" element={<SensorsPage />} />
             <Route path="/sensors/:id" element={<SensorsPage />} />
             <Route path="/alerts" element={<AlertsPage />} />
-            <Route path="/alerts/new" element={<AlertsPage />} />
             <Route path="/alerts/:id" element={<AlertsPage />} />
             <Route path="/notifications" element={<NotificationsPage />} />
-            <Route path="/notifications/new" element={<NotificationsPage />} />
             <Route path="/notifications/:id" element={<NotificationsPage />} />
             <Route path="/cron" element={<CronPage />} />
             <Route path="/settings" element={<SettingsPage />} />

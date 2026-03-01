@@ -1,0 +1,353 @@
+import { _electron as electron } from '@playwright/test'
+import { test, expect } from '@playwright/test'
+import { join } from 'path'
+import { tmpdir } from 'os'
+import { unlinkSync } from 'fs'
+import { IpcHelper } from '../helpers/ipc'
+import { makeSensor } from '../helpers/factory'
+
+let app: Awaited<ReturnType<typeof electron.launch>>
+let page: Awaited<ReturnType<typeof app.firstWindow>>
+let ipc: IpcHelper
+let dbPath: string
+
+// Track IDs for cleanup
+const createdSensorIds: string[] = []
+const createdAlertIds: string[] = []
+const createdNotificationIds: string[] = []
+const createdDashboardIds: string[] = []
+const createdPanelIds: string[] = []
+
+// Sensor created via IPC as prerequisite for alerts & dashboard panels
+let prerequisiteSensorId: string
+let prerequisiteSensorName: string
+
+test.beforeAll(async () => {
+  dbPath = join(tmpdir(), `dash-ui-forms-${Date.now()}.duckdb`)
+  app = await electron.launch({
+    args: [join(process.cwd(), 'out/main/index.js')],
+    env: { ...process.env, DASH_TEST_DB_PATH: dbPath },
+  })
+  page = await app.firstWindow()
+  await page.waitForLoadState('domcontentloaded')
+  await page.locator('header').waitFor({ state: 'visible', timeout: 30_000 })
+  ipc = new IpcHelper(page)
+
+  // Create a prerequisite sensor via IPC (needed for alert sensor picker & dashboard panel)
+  const sensorData = makeSensor({ name: 'Prereq Sensor For Forms' })
+  const result = await ipc.createSensor(sensorData)
+  prerequisiteSensorId = result.id
+  prerequisiteSensorName = 'Prereq Sensor For Forms'
+})
+
+test.afterAll(async () => {
+  // Clean up in reverse dependency order
+  for (const id of createdPanelIds) {
+    try { await ipc.deletePanel(id) } catch {}
+  }
+  for (const id of createdDashboardIds) {
+    try { await ipc.deleteDashboard(id) } catch {}
+  }
+  for (const id of createdNotificationIds) {
+    try { await ipc.deleteNotification(id) } catch {}
+  }
+  for (const id of createdAlertIds) {
+    try { await ipc.deleteAlert(id) } catch {}
+  }
+  for (const id of createdSensorIds) {
+    try { await ipc.deleteSensor(id) } catch {}
+  }
+  // Also delete prerequisite sensor
+  try { await ipc.deleteSensor(prerequisiteSensorId) } catch {}
+
+  await app?.close()
+  for (const suffix of ['', '.wal']) {
+    try { unlinkSync(dbPath + suffix) } catch {}
+  }
+})
+
+// --- Navigation helpers ---
+
+async function goTo(section: string) {
+  await page.locator('aside button', { hasText: section }).click()
+  await page.waitForTimeout(300)
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.locator('header').waitFor({ state: 'visible', timeout: 15_000 })
+  await page.locator('aside button', { hasText: section }).click()
+  await page.waitForTimeout(500)
+}
+
+// --- Sensor Form Tests ---
+
+test.describe('Sensor Form', () => {
+  test('navigate to new sensor form', async () => {
+    await goTo('Sensors')
+    await page.locator('button', { hasText: 'New Sensor' }).click()
+    await page.waitForTimeout(500)
+    await expect(page.locator('h1', { hasText: 'New Sensor' })).toBeVisible()
+  })
+
+  test('fill and submit sensor form', async () => {
+    // Fill name
+    await page.locator('input[placeholder="CPU Monitor"]').fill('UI Form Test Sensor')
+
+    // Fill description
+    await page.locator('input[placeholder="Collects CPU usage metrics"]').fill('Created via UI form test')
+
+    // Select Bash execution type
+    const execSelect = page.locator('select').first()
+    await execSelect.selectOption('bash')
+    await page.waitForTimeout(300)
+
+    // Click cron preset "Every 5 minutes"
+    await page.locator('button', { hasText: 'Every 5 minutes' }).click()
+
+    // Fill script textarea
+    const scriptTextarea = page.locator('textarea').first()
+    await scriptTextarea.fill("echo '{\"value\": 42}'")
+
+    // JSON selector should already be "$" but fill it to be sure
+    await page.locator('input[placeholder="$"]').fill('$')
+
+    // Add a table column: name="value", type="DOUBLE"
+    await page.locator('button', { hasText: '+ Add Column' }).click()
+    await page.waitForTimeout(300)
+    const columnNameInput = page.locator('input[placeholder="Column name"]').first()
+    await columnNameInput.fill('value')
+    // Select DOUBLE type for the column
+    const columnTypeSelect = page.locator('select').last()
+    await columnTypeSelect.selectOption('DOUBLE')
+
+    // Click Save
+    await page.locator('button', { hasText: 'Save' }).click()
+    await page.waitForTimeout(1000)
+
+    // Should redirect back to sensor list
+    await expect(page.locator('h1', { hasText: 'Sensors' }).first()).toBeVisible()
+  })
+
+  test('verify sensor appears in list', async () => {
+    await goTo('Sensors')
+    await expect(page.locator('td', { hasText: 'UI Form Test Sensor' })).toBeVisible()
+
+    // Track for cleanup - get ID from IPC
+    const sensors = await ipc.listSensors()
+    const created = sensors.find((s: { name: string }) => s.name === 'UI Form Test Sensor')
+    if (created) createdSensorIds.push(created.id)
+  })
+
+  test('verify sensor has correct type badge', async () => {
+    // The Bash badge should be visible in the sensor row
+    const row = page.locator('tr', { hasText: 'UI Form Test Sensor' })
+    await expect(row.locator('span', { hasText: 'Bash' })).toBeVisible()
+  })
+})
+
+// --- Alert Form Tests ---
+
+test.describe('Alert Form', () => {
+  test('navigate to new alert form', async () => {
+    await goTo('Alerts')
+    await page.locator('button', { hasText: 'New Alert' }).click()
+    await page.waitForTimeout(500)
+    await expect(page.locator('h1', { hasText: 'New Alert' })).toBeVisible()
+  })
+
+  test('fill and submit alert form', async () => {
+    // Fill name
+    await page.locator('input[placeholder="High CPU Alert"]').fill('UI Form Test Alert')
+
+    // Fill description
+    await page.locator('input[placeholder="Fires when CPU usage exceeds 90%"]').fill('Created via UI form test')
+
+    // Set priority to 1
+    const priorityInput = page.locator('input[type="number"]').first()
+    await priorityInput.fill('1')
+
+    // Click cron preset "Every minute"
+    await page.locator('button', { hasText: 'Every minute' }).click()
+
+    // Fill DuckDB query textarea
+    const queryTextarea = page.locator('textarea').first()
+    await queryTextarea.fill('SELECT 1 as value')
+
+    // Fill evaluation script textarea
+    const evalTextarea = page.locator('textarea').nth(1)
+    await evalTextarea.fill('return "ok"')
+
+    // Select the prerequisite sensor from SensorPicker
+    const sensorSelect = page.locator('select').filter({ hasText: 'Add sensor...' })
+    if (await sensorSelect.isVisible()) {
+      await sensorSelect.selectOption({ label: prerequisiteSensorName })
+      await page.waitForTimeout(300)
+    }
+
+    // Click Save
+    await page.locator('button', { hasText: 'Save' }).click()
+    await page.waitForTimeout(1000)
+
+    // Should redirect back to alert list
+    await expect(page.locator('h1', { hasText: 'Alerts' }).first()).toBeVisible()
+  })
+
+  test('verify alert appears in list', async () => {
+    await goTo('Alerts')
+    await expect(page.locator('td', { hasText: 'UI Form Test Alert' })).toBeVisible()
+
+    // Track for cleanup
+    const alerts = await ipc.listAlerts()
+    const created = alerts.find((a: { name: string }) => a.name === 'UI Form Test Alert')
+    if (created) createdAlertIds.push(created.id)
+  })
+
+  test('verify alert has OK state badge', async () => {
+    const row = page.locator('tr', { hasText: 'UI Form Test Alert' })
+    await expect(row.locator('span', { hasText: 'OK' })).toBeVisible()
+  })
+})
+
+// --- Notification Form Tests ---
+
+test.describe('Notification Form', () => {
+  test('navigate to new notification form', async () => {
+    await goTo('Notifications')
+    await page.locator('button', { hasText: 'New Notification' }).click()
+    await page.waitForTimeout(500)
+    await expect(page.locator('h1', { hasText: 'New Notification' })).toBeVisible()
+  })
+
+  test('fill and submit desktop notification', async () => {
+    // Fill name
+    await page.locator('input[placeholder="Critical Alert Email"]').fill('UI Form Test Notification')
+
+    // Click "Desktop" method button
+    await page.locator('button', { hasText: 'Desktop' }).click()
+    await page.waitForTimeout(300)
+
+    // Fill template textarea
+    const templateTextarea = page.locator('textarea').first()
+    await templateTextarea.fill('Alert: <%= alert.name %> is <%= alert.state %>')
+
+    // Click Save
+    await page.locator('button', { hasText: 'Save' }).click()
+    await page.waitForTimeout(1000)
+
+    // Should redirect back to notification list
+    await expect(page.locator('h1', { hasText: 'Notifications' }).first()).toBeVisible()
+  })
+
+  test('verify notification appears in list', async () => {
+    await goTo('Notifications')
+    await expect(page.locator('td', { hasText: 'UI Form Test Notification' })).toBeVisible()
+
+    // Track for cleanup
+    const notifications = await ipc.listNotifications()
+    const created = notifications.find((n: { name: string }) => n.name === 'UI Form Test Notification')
+    if (created) createdNotificationIds.push(created.id)
+  })
+
+  test('verify notification shows Desktop method', async () => {
+    const row = page.locator('tr', { hasText: 'UI Form Test Notification' })
+    await expect(row.locator('text=Desktop')).toBeVisible()
+  })
+})
+
+// --- Dashboard Graph Panel Tests ---
+
+test.describe('Dashboard Graph Panels', () => {
+  test('create dashboard and enter edit mode', async () => {
+    await goTo('Dashboards')
+    await page.waitForTimeout(500)
+
+    // Click "New Dashboard" button - could be in empty state or tab bar
+    const newDashBtn = page.locator('button', { hasText: 'New Dashboard' })
+    if (await newDashBtn.isVisible()) {
+      await newDashBtn.click()
+    } else {
+      // Use the "+" button in tab bar
+      await page.locator('button[title="New Dashboard"]').click()
+    }
+    await page.waitForTimeout(500)
+
+    // Fill dashboard name in the dialog
+    await expect(page.locator('h3', { hasText: 'New Dashboard' })).toBeVisible()
+    await page.locator('input[placeholder="Dashboard name..."]').fill('UI Form Test Dashboard')
+    await page.locator('button', { hasText: 'Create' }).click()
+    await page.waitForTimeout(1000)
+
+    // Track for cleanup
+    const dashboards = await ipc.listDashboards()
+    const created = dashboards.find((d: { name: string }) => d.name === 'UI Form Test Dashboard')
+    if (created) createdDashboardIds.push(created.id)
+
+    // Click "Edit" to enter edit mode
+    await page.locator('button', { hasText: /^Edit$/ }).click()
+    await page.waitForTimeout(500)
+
+    // Verify we're in edit mode
+    await expect(page.locator('button', { hasText: 'Editing' })).toBeVisible()
+  })
+
+  test('open Add Panel sheet and configure graph', async () => {
+    // Click "Add Panel" button
+    await page.locator('button', { hasText: 'Add Panel' }).first().click()
+    await page.waitForTimeout(500)
+
+    // Verify panel options sheet appears
+    await expect(page.locator('h3', { hasText: 'Add Panel' })).toBeVisible()
+
+    // Select "Line" graph type
+    await page.locator('button', { hasText: 'Line' }).click()
+    await page.waitForTimeout(300)
+
+    // Select sensor from SensorPicker
+    const sensorSelect = page.locator('select').filter({ hasText: 'Add sensor...' })
+    if (await sensorSelect.isVisible()) {
+      await sensorSelect.selectOption({ label: prerequisiteSensorName })
+      await page.waitForTimeout(300)
+    }
+
+    // Fill panel title
+    await page.locator('input[placeholder="Panel title"]').fill('Test Graph Panel')
+  })
+
+  test('submit panel and verify it appears', async () => {
+    // Click the "Add Panel" submit button in the sheet
+    // There may be two "Add Panel" elements - the sheet submit button is the one inside the sheet
+    const submitBtn = page.locator('button', { hasText: 'Add Panel' }).last()
+    await submitBtn.click()
+    await page.waitForTimeout(1000)
+
+    // The panel renders but shows "No data yet" since the sensor has no collected data.
+    // The title is only rendered when chart data exists, so verify the panel via its content.
+    await expect(page.locator('text=No data yet')).toBeVisible()
+  })
+
+  test('exit edit mode and verify panel persists', async () => {
+    // Click "Editing" button to exit edit mode
+    await page.locator('button', { hasText: 'Editing' }).click()
+    await page.waitForTimeout(500)
+
+    // Verify back to view mode
+    await expect(page.locator('button', { hasText: /^Edit$/ })).toBeVisible()
+
+    // Reload and verify panel persists
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await page.locator('header').waitFor({ state: 'visible', timeout: 15_000 })
+    await page.waitForTimeout(1000)
+
+    // Navigate back to dashboards
+    await page.locator('aside button', { hasText: 'Dashboards' }).click()
+    await page.waitForTimeout(500)
+
+    // Click the dashboard tab if needed
+    const dashTab = page.locator('button', { hasText: 'UI Form Test Dashboard' })
+    if (await dashTab.isVisible()) {
+      await dashTab.click()
+      await page.waitForTimeout(500)
+    }
+
+    // Verify panel still exists (shows "No data yet" since sensor has no data)
+    await expect(page.locator('text=No data yet')).toBeVisible()
+  })
+})
