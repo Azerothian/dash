@@ -175,20 +175,23 @@ test.describe('Alert Form', () => {
     // Click cron preset "Every minute"
     await page.locator('button', { hasText: 'Every minute' }).click()
 
-    // Fill DuckDB query textarea
-    const queryTextarea = page.locator('textarea').first()
-    await queryTextarea.fill('SELECT 1 as value')
+    // Add a rule
+    await page.locator('button', { hasText: 'Add Rule' }).click()
+    await page.waitForTimeout(300)
 
-    // Fill evaluation script textarea
-    const evalTextarea = page.locator('textarea').nth(1)
-    await evalTextarea.fill('return "ok"')
+    // Select the prerequisite sensor in the rule's sensor dropdown
+    const sensorSelect = page.locator('select').filter({ hasText: 'Select sensor...' })
+    await sensorSelect.selectOption({ label: prerequisiteSensorName })
+    await page.waitForTimeout(300)
 
-    // Select the prerequisite sensor from SensorPicker
-    const sensorSelect = page.locator('select').filter({ hasText: 'Add sensor...' })
-    if (await sensorSelect.isVisible()) {
-      await sensorSelect.selectOption({ label: prerequisiteSensorName })
-      await page.waitForTimeout(300)
-    }
+    // Select the 'value' column in the rule's column dropdown
+    const columnSelect = page.locator('select').filter({ hasText: 'Select column...' })
+    await columnSelect.selectOption('value')
+    await page.waitForTimeout(300)
+
+    // Set threshold
+    const thresholdInput = page.locator('input[type="number"][step="any"]')
+    await thresholdInput.fill('90')
 
     // Click Save
     await page.locator('button', { hasText: 'Save' }).click()

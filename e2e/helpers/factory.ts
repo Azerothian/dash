@@ -23,11 +23,17 @@ export function makeAlert(sensorIds: string[] = [], overrides: Record<string, un
   return {
     name: `Test Alert ${uid()}`,
     description: 'E2E test alert',
-    queries: ['SELECT * FROM sensor_data ORDER BY collected_at DESC LIMIT 1'],
-    evaluation_script: 'return "ok"',
+    rules: sensorIds.map((id) => ({
+      sensor_id: id,
+      column: 'value',
+      aggregation: 'last',
+      time_window_minutes: 60,
+      operator: '>',
+      threshold: 100,
+      severity: 'warning',
+    })),
     cron_expression: '*/5 * * * *',
     priority: 3,
-    sensor_ids: sensorIds,
     enabled: true,
     ...overrides,
   }

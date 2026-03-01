@@ -1,12 +1,25 @@
 import { useState, useEffect } from 'react'
-import { ArrowLeft, Save, Loader2, Plus, X } from 'lucide-react'
+import { ArrowLeft, Save, Loader2, Plus } from 'lucide-react'
 import { useAlert, useCreateAlert, useUpdateAlert } from '../../hooks/useAlerts'
 import { CronInput } from '../shared/CronInput'
-import { SensorPicker } from '../shared/SensorPicker'
+import { RuleRow } from './RuleRow'
+import type { AlertRule } from '@shared/entities'
 
 interface AlertFormProps {
   alertId?: string
   onClose: () => void
+}
+
+function emptyRule(): AlertRule {
+  return {
+    sensor_id: '',
+    column: '',
+    aggregation: 'last',
+    time_window_minutes: 60,
+    operator: '>',
+    threshold: 0,
+    severity: 'warning',
+  }
 }
 
 export function AlertForm({ alertId, onClose }: AlertFormProps) {
@@ -16,25 +29,19 @@ export function AlertForm({ alertId, onClose }: AlertFormProps) {
 
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
-  const [queries, setQueries] = useState<string[]>([''])
-  const [evaluationScript, setEvaluationScript] = useState(
-    'function evaluate(results) {\n  return "ok";\n}',
-  )
+  const [rules, setRules] = useState<AlertRule[]>([])
   const [cronExpression, setCronExpression] = useState('*/1 * * * *')
   const [priority, setPriority] = useState(1)
   const [enabled, setEnabled] = useState(true)
-  const [sensorIds, setSensorIds] = useState<string[]>([])
 
   useEffect(() => {
     if (alert) {
       setName(alert.name)
       setDescription(alert.description)
-      setQueries(alert.queries.length ? alert.queries : [''])
-      setEvaluationScript(alert.evaluation_script)
+      setRules(alert.rules?.length ? alert.rules : [])
       setCronExpression(alert.cron_expression)
       setPriority(alert.priority)
       setEnabled(alert.enabled)
-      setSensorIds(alert.sensor_ids || [])
     }
   }, [alert])
 
@@ -42,12 +49,10 @@ export function AlertForm({ alertId, onClose }: AlertFormProps) {
     const data = {
       name,
       description,
-      queries: queries.filter((q) => q.trim()),
-      evaluation_script: evaluationScript,
+      rules,
       cron_expression: cronExpression,
       priority,
       enabled,
-      sensor_ids: sensorIds,
     }
     if (alertId) {
       await updateMutation.mutateAsync({ id: alertId, ...data })
@@ -57,6 +62,17 @@ export function AlertForm({ alertId, onClose }: AlertFormProps) {
     onClose()
   }
 
+  const updateRule = (index: number, rule: AlertRule) => {
+    const next = [...rules]
+    next[index] = rule
+    setRules(next)
+  }
+
+  const removeRule = (index: number) => {
+    setRules(rules.filter((_, i) => i !== index))
+  }
+
+  const hasValidRule = rules.some((r) => r.sensor_id && r.column)
   const isPending = createMutation.isPending || updateMutation.isPending
 
   if (alertId && isLoading) {
@@ -78,7 +94,7 @@ export function AlertForm({ alertId, onClose }: AlertFormProps) {
         </div>
         <button
           onClick={handleSubmit}
-          disabled={isPending || !name || !queries.some((q) => q.trim())}
+          disabled={isPending || !name || !hasValidRule}
           className="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
         >
           {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
@@ -132,49 +148,23 @@ export function AlertForm({ alertId, onClose }: AlertFormProps) {
         <CronInput value={cronExpression} onChange={setCronExpression} />
 
         <div className="space-y-2">
-          <label className="block text-sm font-medium">DuckDB Queries</label>
-          {queries.map((q, i) => (
-            <div key={i} className="flex gap-2">
-              <textarea
-                className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm font-mono min-h-[80px]"
-                value={q}
-                onChange={(e) => {
-                  const next = [...queries]
-                  next[i] = e.target.value
-                  setQueries(next)
-                }}
-                placeholder="SELECT avg(value) as avg_val FROM sensor_data WHERE ..."
-              />
-              {queries.length > 1 && (
-                <button
-                  onClick={() => setQueries(queries.filter((_, idx) => idx !== i))}
-                  className="self-start rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              )}
-            </div>
+          <label className="block text-sm font-medium">Alert Rules</label>
+          {rules.map((rule, i) => (
+            <RuleRow
+              key={i}
+              rule={rule}
+              onChange={(r) => updateRule(i, r)}
+              onRemove={() => removeRule(i)}
+            />
           ))}
           <button
-            onClick={() => setQueries([...queries, ''])}
+            onClick={() => setRules([...rules, emptyRule()])}
             className="flex items-center gap-1 rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent"
           >
             <Plus className="h-4 w-4" />
-            Add Query
+            Add Rule
           </button>
         </div>
-
-        <div>
-          <label className="block text-sm font-medium mb-1">Evaluation Script (TypeScript)</label>
-          <textarea
-            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono min-h-[150px]"
-            value={evaluationScript}
-            onChange={(e) => setEvaluationScript(e.target.value)}
-            placeholder={'function evaluate(results) {\n  // results[0] is the first query result\n  return "ok"; // or "notice", "warning", "error"\n}'}
-          />
-        </div>
-
-        <SensorPicker value={sensorIds} onChange={setSensorIds} />
       </div>
     </div>
   )

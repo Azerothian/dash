@@ -102,8 +102,7 @@ erDiagram
         string id PK
         string name
         string description
-        json queries "array of DuckDB query strings"
-        text evaluation_script
+        json rules "array of AlertRule objects"
         string cron_expression
         string state "ok|notice|warning|error"
         integer priority
@@ -113,11 +112,6 @@ erDiagram
         boolean enabled
         timestamp created_at
         timestamp updated_at
-    }
-
-    ALERT_SENSOR {
-        string alert_id FK
-        string sensor_id FK
     }
 
     ALERT_HISTORY {
@@ -191,8 +185,7 @@ erDiagram
     }
 
     SENSOR ||--o{ SENSOR_DATA : "produces"
-    SENSOR ||--o{ ALERT_SENSOR : "monitored by"
-    ALERT ||--o{ ALERT_SENSOR : "watches"
+    SENSOR ||--o{ ALERT : "referenced by rules"
     ALERT ||--o{ ALERT_HISTORY : "logs"
     ALERT ||--o{ NOTIFICATION_HISTORY : "triggers"
     NOTIFICATION ||--o{ NOTIFICATION_HISTORY : "sends"
@@ -314,12 +307,12 @@ sequenceDiagram
 |----|-------|-------------------|
 | A-01 | As a user, I want to create an alert with name, description, and priority so that I can define monitoring rules. | Form validates required fields; priority is a positive integer. |
 | A-02 | As a user, I want to define multiple DuckDB queries as alert data sources so that rules can evaluate complex conditions. | Array of query strings, each editable in Monaco with DuckDB SQL highlighting. |
-| A-03 | As a user, I want to write a TypeScript evaluation script that determines alert state so that I have full control over alert logic. | Script receives query results as input and must return `"ok"`, `"notice"`, `"warning"`, or `"error"`. |
+| A-03 | As a user, I want to define structured rules that determine alert state so that alert logic is clear and maintainable. | Each rule targets a sensor column, applies an aggregation over a time window, compares against a threshold, and maps to a severity. |
 | A-04 | As a user, I want to assign a cron expression to an alert so that evaluation runs on schedule. | Cron registered with node-schedule on save. |
 | A-05 | As a user, I want to see the current state of each alert (ok, notice, warning, error) in a list so that I can triage issues. | Color-coded state badges in the alert list. |
 | A-06 | As a user, I want to acknowledge an alert so that the team knows it is being handled. | "Acknowledge" action prompts for a message and sets `acknowledged=true`. |
 | A-07 | As a user, I want to see alert history so that I can review state transitions over time. | History log shows timestamp, previous state, new state, and evaluation result. |
-| A-08 | As a user, I want to associate sensors with an alert so that the relationship is explicit. | Multi-select sensor picker writes `alert_sensor` associations. |
+| A-08 | As a user, I want to associate sensors with an alert so that the relationship is explicit. | Sensor relationships are implicit through alert rule definitions. |
 | A-09 | As a user, I want to filter alerts by state so that I can focus on active issues. | Filter dropdown with checkboxes for each state; persisted in URL params. |
 | A-10 | As a user, I want to filter alerts by priority so that I can focus on critical issues first. | Sortable priority column and min-priority filter. |
 | A-11 | As a user, I want alerts to be enabled/disabled so that I can pause evaluation without deleting. | Toggle switch per alert; disabled alerts skip cron execution. |
@@ -390,7 +383,7 @@ sequenceDiagram
 
 **Update:** Validate changed fields → update `sensor` row → if `table_definition` changed, migrate data table → if `cron_expression` changed, reschedule cron → update `updated_at`.
 
-**Delete:** Cancel cron job → drop `sensor_data` records → remove `alert_sensor` associations → remove `panel_sensor` associations → delete `sensor` row.
+**Delete:** Cancel cron job → drop `sensor_data` records → remove alert rule references → remove `panel_sensor` associations → delete `sensor` row.
 
 **Cascade:** Deleting a sensor removes all associated `sensor_data`, unlinks from alerts and panels but does not delete those entities.
 
@@ -405,8 +398,7 @@ sequenceDiagram
 | `id` | UUID | auto | — | `uuidv4()` |
 | `name` | string | yes | 1–100 chars, unique | — |
 | `description` | string | no | max 500 chars | `""` |
-| `queries` | JSON | yes | non-empty array of SQL strings | — |
-| `evaluation_script` | text | yes | valid TS that returns state enum | — |
+| `rules` | JSON | yes | array of AlertRule objects (see below) | `[]` |
 | `cron_expression` | string | yes | valid cron expression | — |
 | `state` | enum | auto | `ok\|notice\|warning\|error` | `"ok"` |
 | `priority` | integer | yes | 1–100 | — |
@@ -417,15 +409,29 @@ sequenceDiagram
 | `created_at` | timestamp | auto | — | `now()` |
 | `updated_at` | timestamp | auto | — | `now()` |
 
-**Create:** Validate fields → insert into `alert` table → register cron job if `enabled=true` → create `alert_sensor` associations.
+**AlertRule sub-fields:**
 
-**Read:** List with filters on `state`, `priority`, `acknowledged`, `enabled`. Single alert includes associated sensor names and recent history.
+| Field | Type | Description |
+|-------|------|-------------|
+| `sensor_id` | UUID FK | Target sensor |
+| `column` | string | Column from sensor's `table_definition` |
+| `aggregation` | enum | `avg\|min\|max\|sum\|count\|last` |
+| `time_window_minutes` | integer | Lookback window in minutes |
+| `operator` | enum | `>\|>=\|<\|<=\|==\|!=` |
+| `threshold` | number | Comparison value |
+| `severity` | enum | `notice\|warning\|error` — severity when rule triggers |
 
-**Update:** Validate → update row → reschedule cron if expression changed → re-link sensors if changed.
+> **Note:** Sensor relationships are implicit through rule definitions. The `alert_sensor` junction table is no longer used.
 
-**Delete:** Cancel cron job → delete `alert_history` records → remove `alert_sensor` links → remove `panel_alert` links → remove `notification_history` referencing this alert → delete `alert` row.
+**Create:** Validate fields → insert into `alert` table with `rules` JSON → register cron job if `enabled=true`.
 
-**Cascade:** Deleting an alert removes all its history, unlinks from sensors, panels, and notification history.
+**Read:** List with filters on `state`, `priority`, `acknowledged`, `enabled`. Single alert includes rules and recent history.
+
+**Update:** Validate → update row (including `rules` JSON) → reschedule cron if expression changed.
+
+**Delete:** Cancel cron job → delete `alert_history` records → remove `panel_alert` links → remove `notification_history` referencing this alert → delete `alert` row.
+
+**Cascade:** Deleting an alert removes all its history, unlinks from panels, and notification history.
 
 ---
 
@@ -615,17 +621,18 @@ flowchart TD
     A[Cron Trigger] --> B{Task already running?}
     B -->|Yes| C[Skip & Log]
     B -->|No| D[Set running = true]
-    D --> E[Execute DuckDB Queries]
-    E --> F[Pass results to Evaluation Script]
-    F --> G[Script returns state]
-    G --> H{State changed?}
-    H -->|No| I[Update last_run timestamp]
-    H -->|Yes| J[Update alert.state]
-    J --> K[Insert alert_history record]
-    K --> L[Emit IPC: alert:state-changed]
-    L --> I
-    I --> M[Set running = false]
-    C --> M
+    D --> E[Iterate alert rules]
+    E --> F[For each rule: query sensor_data with aggregation over time window]
+    F --> G[Compare aggregated value against threshold]
+    G --> H[Determine highest triggered severity]
+    H --> I{State changed?}
+    I -->|No| J[Update last_run timestamp]
+    I -->|Yes| K[Update alert.state]
+    K --> L[Insert alert_history record]
+    L --> M[Emit IPC: alert:state-changed]
+    M --> J
+    J --> N[Set running = false]
+    C --> N
 ```
 
 ### 5.3 Notification Dispatch Flow

@@ -7,6 +7,19 @@ export type PanelType = 'graph' | 'custom'
 export type GraphType = 'line' | 'bar' | 'area' | 'pie' | 'scatter' | 'radar'
 export type ThemeSetting = 'light' | 'dark' | 'system'
 export type CronTaskType = 'sensor' | 'alert' | 'notification'
+export type AggregationFunction = 'avg' | 'min' | 'max' | 'sum' | 'count' | 'last'
+export type ComparisonOperator = '>' | '>=' | '<' | '<=' | '==' | '!='
+export type AlertSeverity = 'notice' | 'warning' | 'error'
+
+export interface AlertRule {
+  sensor_id: string
+  column: string
+  aggregation: AggregationFunction
+  time_window_minutes: number
+  operator: ComparisonOperator
+  threshold: number
+  severity: AlertSeverity
+}
 
 export interface Sensor {
   id: string
@@ -45,8 +58,7 @@ export interface Alert {
   id: string
   name: string
   description: string
-  queries: string[]
-  evaluation_script: string
+  rules: AlertRule[]
   cron_expression: string
   state: AlertState
   priority: number
@@ -56,7 +68,6 @@ export interface Alert {
   enabled: boolean
   created_at: string
   updated_at: string
-  sensor_ids?: string[]
 }
 
 export interface AlertHistory {

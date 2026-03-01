@@ -74,7 +74,6 @@ export class SensorService {
 
   async delete(id: string): Promise<void> {
     await this.db.run('DELETE FROM sensor_data WHERE sensor_id = ?', id)
-    await this.db.run('DELETE FROM alert_sensor WHERE sensor_id = ?', id)
     await this.db.run('DELETE FROM panel_sensor WHERE sensor_id = ?', id)
     await this.db.run('DELETE FROM sensor WHERE id = ?', id)
   }

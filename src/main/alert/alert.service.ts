@@ -1,7 +1,9 @@
 import { Injectable, Inject } from '@nestjs/common'
 import { v4 as uuidv4 } from 'uuid'
 import { DatabaseService } from '../database/database.service.js'
-import type { Alert, AlertHistory, AlertState, CreateAlert, UpdateAlert } from '@shared/entities'
+import type { Alert, AlertHistory, AlertRule, AlertSeverity, AlertState, ComparisonOperator, CreateAlert, UpdateAlert } from '@shared/entities'
+
+const SEVERITY_ORDER: Record<AlertSeverity, number> = { notice: 1, warning: 2, error: 3 }
 
 @Injectable()
 export class AlertService {
@@ -9,37 +11,26 @@ export class AlertService {
 
   async list(): Promise<Alert[]> {
     const rows = await this.db.all<Record<string, unknown>>('SELECT * FROM alert ORDER BY priority, name')
-    const alerts = rows.map(this.mapRow)
-    for (const alert of alerts) {
-      alert.sensor_ids = await this.getSensorIds(alert.id)
-    }
-    return alerts
+    return rows.map(this.mapRow)
   }
 
   async get(id: string): Promise<Alert | undefined> {
     const row = await this.db.get<Record<string, unknown>>('SELECT * FROM alert WHERE id = ?', id)
     if (!row) return undefined
-    const alert = this.mapRow(row)
-    alert.sensor_ids = await this.getSensorIds(id)
-    return alert
+    return this.mapRow(row)
   }
 
   async create(data: CreateAlert): Promise<Alert> {
     const id = uuidv4()
     const now = new Date().toISOString()
     await this.db.run(
-      `INSERT INTO alert (id, name, description, queries, evaluation_script, cron_expression,
+      `INSERT INTO alert (id, name, description, rules, cron_expression,
         state, priority, acknowledged, enabled, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'ok', ?, false, ?, ?, ?)`,
-      id, data.name, data.description || '', JSON.stringify(data.queries),
-      data.evaluation_script, data.cron_expression, data.priority,
+       VALUES (?, ?, ?, ?, ?, 'ok', ?, false, ?, ?, ?)`,
+      id, data.name, data.description || '', JSON.stringify(data.rules || []),
+      data.cron_expression, data.priority,
       data.enabled ?? true, now, now,
     )
-    if (data.sensor_ids?.length) {
-      for (const sensorId of data.sensor_ids) {
-        await this.db.run('INSERT INTO alert_sensor (alert_id, sensor_id) VALUES (?, ?)', id, sensorId)
-      }
-    }
     return (await this.get(id))!
   }
 
@@ -52,8 +43,7 @@ export class AlertService {
 
     if (data.name !== undefined) { fields.push('name = ?'); values.push(data.name) }
     if (data.description !== undefined) { fields.push('description = ?'); values.push(data.description) }
-    if (data.queries !== undefined) { fields.push('queries = ?'); values.push(JSON.stringify(data.queries)) }
-    if (data.evaluation_script !== undefined) { fields.push('evaluation_script = ?'); values.push(data.evaluation_script) }
+    if (data.rules !== undefined) { fields.push('rules = ?'); values.push(JSON.stringify(data.rules)) }
     if (data.cron_expression !== undefined) { fields.push('cron_expression = ?'); values.push(data.cron_expression) }
     if (data.priority !== undefined) { fields.push('priority = ?'); values.push(data.priority) }
     if (data.enabled !== undefined) { fields.push('enabled = ?'); values.push(data.enabled) }
@@ -65,19 +55,11 @@ export class AlertService {
       await this.db.run(`UPDATE alert SET ${fields.join(', ')} WHERE id = ?`, ...values)
     }
 
-    if (data.sensor_ids !== undefined) {
-      await this.db.run('DELETE FROM alert_sensor WHERE alert_id = ?', data.id)
-      for (const sensorId of data.sensor_ids) {
-        await this.db.run('INSERT INTO alert_sensor (alert_id, sensor_id) VALUES (?, ?)', data.id, sensorId)
-      }
-    }
-
     return (await this.get(data.id))!
   }
 
   async delete(id: string): Promise<void> {
     await this.db.run('DELETE FROM alert_history WHERE alert_id = ?', id)
-    await this.db.run('DELETE FROM alert_sensor WHERE alert_id = ?', id)
     await this.db.run('DELETE FROM panel_alert WHERE alert_id = ?', id)
     await this.db.run('DELETE FROM notification_history WHERE alert_id = ?', id)
     await this.db.run('DELETE FROM alert WHERE id = ?', id)
@@ -107,9 +89,7 @@ export class AlertService {
 
     if (alert.state !== newState) {
       const now = new Date().toISOString()
-      // Update alert state
       await this.db.run('UPDATE alert SET state = ?, updated_at = ? WHERE id = ?', newState, now, id)
-      // Insert history
       await this.db.run(
         `INSERT INTO alert_history (id, alert_id, previous_state, new_state, message, evaluation_result, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -125,30 +105,35 @@ export class AlertService {
     const alert = await this.get(id)
     if (!alert) throw new Error(`Alert ${id} not found`)
 
-    // Execute all queries
-    const queryResults: unknown[] = []
-    for (const query of alert.queries) {
-      const rows = await this.db.all(query)
-      queryResults.push(rows)
+    if (!alert.rules || alert.rules.length === 0) {
+      return { state: 'ok', result: { message: 'No rules defined' } }
     }
 
-    // Execute evaluation script
-    const evalFn = new Function('results', `
-      ${alert.evaluation_script}
-      if (typeof evaluate === 'function') return evaluate(results);
-      if (typeof module !== 'undefined' && module.exports) return module.exports(results);
-      return 'ok';
-    `)
+    let highestSeverity: AlertSeverity | null = null
+    const ruleResults: Array<{ rule: AlertRule; value: number | null; triggered: boolean }> = []
 
-    let newState: AlertState
-    try {
-      const result = evalFn(queryResults)
-      newState = ['ok', 'notice', 'warning', 'error'].includes(result) ? result : 'ok'
-    } catch {
-      newState = 'error'
+    for (const rule of alert.rules) {
+      try {
+        const sql = this.buildRuleQuery(rule)
+        const rows = await this.db.all<Record<string, unknown>>(sql, rule.sensor_id)
+        const row = rows[0]
+        const value = row ? Number(row.result) : null
+
+        const triggered = value !== null && !isNaN(value) && this.compareValue(value, rule.operator, rule.threshold)
+        ruleResults.push({ rule, value, triggered })
+
+        if (triggered) {
+          if (!highestSeverity || SEVERITY_ORDER[rule.severity] > SEVERITY_ORDER[highestSeverity]) {
+            highestSeverity = rule.severity
+          }
+        }
+      } catch {
+        ruleResults.push({ rule, value: null, triggered: false })
+      }
     }
 
-    return { state: newState, result: queryResults }
+    const newState: AlertState = highestSeverity ?? 'ok'
+    return { state: newState, result: ruleResults }
   }
 
   async getHistory(alertId: string, limit = 50, offset = 0): Promise<AlertHistory[]> {
@@ -167,11 +152,31 @@ export class AlertService {
     }))
   }
 
-  private async getSensorIds(alertId: string): Promise<string[]> {
-    const rows = await this.db.all<{ sensor_id: string }>(
-      'SELECT sensor_id FROM alert_sensor WHERE alert_id = ?', alertId,
-    )
-    return rows.map((r) => r.sensor_id)
+  private buildRuleQuery(rule: AlertRule): string {
+    // Sanitize column name to prevent injection
+    const column = rule.column.replace(/[^a-zA-Z0-9_]/g, '')
+    const minutes = Math.max(1, Math.floor(rule.time_window_minutes))
+
+    if (rule.aggregation === 'last') {
+      return `SELECT CAST(json_extract_string(data, '$.${column}') AS DOUBLE) AS result
+        FROM sensor_data WHERE sensor_id = ? AND collected_at >= now() - INTERVAL '${minutes} minutes'
+        ORDER BY collected_at DESC LIMIT 1`
+    }
+
+    return `SELECT ${rule.aggregation}(CAST(json_extract_string(data, '$.${column}') AS DOUBLE)) AS result
+      FROM sensor_data WHERE sensor_id = ? AND collected_at >= now() - INTERVAL '${minutes} minutes'`
+  }
+
+  private compareValue(value: number, operator: ComparisonOperator, threshold: number): boolean {
+    switch (operator) {
+      case '>': return value > threshold
+      case '>=': return value >= threshold
+      case '<': return value < threshold
+      case '<=': return value <= threshold
+      case '==': return value === threshold
+      case '!=': return value !== threshold
+      default: return false
+    }
   }
 
   private mapRow(row: Record<string, unknown>): Alert {
@@ -179,8 +184,7 @@ export class AlertService {
       id: row.id as string,
       name: row.name as string,
       description: (row.description as string) || '',
-      queries: typeof row.queries === 'string' ? JSON.parse(row.queries) : row.queries as string[],
-      evaluation_script: row.evaluation_script as string,
+      rules: typeof row.rules === 'string' ? JSON.parse(row.rules) : (row.rules as AlertRule[]) || [],
       cron_expression: row.cron_expression as string,
       state: row.state as AlertState,
       priority: row.priority as number,

@@ -51,6 +51,42 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     })
   }
 
+  private async migrateAlertSchema(): Promise<void> {
+    try {
+      // Check if old schema exists by looking for 'queries' column
+      await this.all("SELECT queries FROM alert LIMIT 1")
+      // Old schema detected — recreate table with new schema
+      await this.run("ALTER TABLE alert RENAME TO alert_old")
+      await this.run(`
+        CREATE TABLE alert (
+          id VARCHAR PRIMARY KEY,
+          name VARCHAR NOT NULL UNIQUE,
+          description VARCHAR DEFAULT '',
+          rules JSON NOT NULL DEFAULT '[]',
+          cron_expression VARCHAR NOT NULL,
+          state VARCHAR DEFAULT 'ok',
+          priority INTEGER NOT NULL,
+          acknowledged BOOLEAN DEFAULT false,
+          ack_message TEXT,
+          ack_at TIMESTAMP,
+          enabled BOOLEAN DEFAULT true,
+          created_at TIMESTAMP DEFAULT current_timestamp,
+          updated_at TIMESTAMP DEFAULT current_timestamp
+        )
+      `)
+      await this.run(`
+        INSERT INTO alert (id, name, description, rules, cron_expression, state, priority,
+          acknowledged, ack_message, ack_at, enabled, created_at, updated_at)
+        SELECT id, name, description, '[]', cron_expression, state, priority,
+          acknowledged, ack_message, ack_at, enabled, created_at, updated_at
+        FROM alert_old
+      `)
+      await this.run("DROP TABLE alert_old")
+    } catch {
+      // No old schema or no rows — nothing to migrate
+    }
+  }
+
   private async initSchema(): Promise<void> {
     // Sensors
     await this.run(`
@@ -87,8 +123,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         id VARCHAR PRIMARY KEY,
         name VARCHAR NOT NULL UNIQUE,
         description VARCHAR DEFAULT '',
-        queries JSON NOT NULL,
-        evaluation_script TEXT NOT NULL,
+        rules JSON NOT NULL DEFAULT '[]',
         cron_expression VARCHAR NOT NULL,
         state VARCHAR DEFAULT 'ok',
         priority INTEGER NOT NULL,
@@ -101,14 +136,11 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       )
     `)
 
-    // Alert-sensor associations
-    await this.run(`
-      CREATE TABLE IF NOT EXISTS alert_sensor (
-        alert_id VARCHAR NOT NULL,
-        sensor_id VARCHAR NOT NULL,
-        PRIMARY KEY (alert_id, sensor_id)
-      )
-    `)
+    // Migrate from old schema if needed
+    await this.migrateAlertSchema()
+
+    // Drop legacy alert_sensor table
+    await this.run('DROP TABLE IF EXISTS alert_sensor')
 
     // Alert history
     await this.run(`
