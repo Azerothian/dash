@@ -21,6 +21,7 @@ export class IpcHelper {
   updateSensor(data: Record<string, unknown>) { return this.invoke<unknown>('sensor:update', data) }
   deleteSensor(id: string) { return this.invoke<void>('sensor:delete', id) }
   runSensor(id: string) { return this.invoke<unknown>('sensor:run', id) }
+  listSensorData(sensorId: string, limit?: number) { return this.invoke<unknown[]>('sensor-data:list', sensorId, limit) }
 
   // Alerts
   listAlerts() { return this.invoke<unknown[]>('alert:list') }

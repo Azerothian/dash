@@ -94,6 +94,27 @@ test.describe('Sensors', () => {
     await expect(runButton).toBeEnabled()
   })
 
+  test('view data button is visible', async () => {
+    await expect(page.locator('button[title="View Data"]').first()).toBeVisible()
+  })
+
+  test('view data shows collected rows after sensor run', async () => {
+    await page.locator('button[title="View Data"]').first().click()
+    await page.waitForTimeout(500)
+    await expect(page.locator('h1', { hasText: 'Sensor Data' })).toBeVisible()
+    await expect(page.locator('th', { hasText: 'Collected At' })).toBeVisible()
+    // The prior "run now" test created data, so at least 1 row should exist
+    const rowCount = await page.locator('tbody tr').count()
+    expect(rowCount).toBeGreaterThanOrEqual(1)
+  })
+
+  test('data view back button returns to sensor list', async () => {
+    // Click back button (← character)
+    await page.locator('button', { hasText: '←' }).click()
+    await page.waitForTimeout(500)
+    await expect(page.locator('h1', { hasText: 'Sensors' }).first()).toBeVisible()
+  })
+
   test('delete sensor - dismiss keeps sensor', async () => {
     page.once('dialog', async (dialog) => {
       await dialog.dismiss()

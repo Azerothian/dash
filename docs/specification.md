@@ -300,6 +300,7 @@ sequenceDiagram
 | S-10 | As a user, I want to edit sensor scripts in Monaco so that I have a rich editing experience. | Monaco editor with language-appropriate syntax highlighting and intellisense. |
 | S-11 | As a user, I want to set environment variables per sensor so that scripts can access secrets/config. | Key-value env var editor; vars passed to child process environment. |
 | S-12 | As a user, I want to see a list of all sensors with their status so that I have an overview of data collection. | Virtualized list showing name, type, cron, last run, enabled/disabled. |
+| S-13 | As a user, I want to view collected sensor data so that I can inspect the values being gathered. | View Data button opens a table with Collected At + dynamic columns from table_definition; supports limit selection. |
 
 ### 3.4 Alerts (12 stories)
 
@@ -1007,9 +1008,29 @@ The app targets desktop Electron windows. Minimum supported size: **1024×768**.
 │        │  Showing 1-20 of 45 sensors                    │
 └────────┴────────────────────────────────────────────────┘
   Virtualized list for performance with large sensor counts
+  Actions per row: View Data, Run Now, Edit, Delete
 ```
 
-### 7.5 Sensor Form (Create/Edit)
+### 7.5a Sensor Data View
+
+```
+┌────────┬────────────────────────────────────────────────┐
+│Sidebar │  ← Sensor Data: CPU Monitor      Limit: [100▼]│
+│        ├────────────────────────────────────────────────┤
+│        │ ┌──────────────────────────────────────────┐   │
+│        │ │ Collected At         value    cpu_pct    │   │
+│        │ ├──────────────────────────────────────────┤   │
+│        │ │ 2025-01-15 10:05:00  42       85.2       │   │
+│        │ │ 2025-01-15 10:00:00  41       82.1       │   │
+│        │ └──────────────────────────────────────────┘   │
+│        │  Showing 2 rows                                │
+└────────┴────────────────────────────────────────────────┘
+  Columns are dynamic based on sensor table_definition.
+  Limit selector offers 25, 50, 100, 500 rows.
+  Back button returns to sensor list.
+```
+
+### 7.5b Sensor Form (Create/Edit)
 
 ```
 ┌────────┬────────────────────────────────────────────────┐

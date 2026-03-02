@@ -6,12 +6,14 @@ import {
   Play,
   Trash2,
   Edit2,
+  Eye,
   Loader2,
   CheckCircle,
   XCircle,
 } from 'lucide-react'
 import { useSensors, useDeleteSensor, useRunSensor } from '../hooks/useSensors'
 import { SensorForm } from '../components/sensor/SensorForm'
+import { SensorDataView } from '../components/sensor/SensorDataView'
 import type { Sensor, ExecutionType } from '@shared/entities'
 
 export function SensorsPage() {
@@ -21,6 +23,11 @@ export function SensorsPage() {
   const deleteMutation = useDeleteSensor()
   const runMutation = useRunSensor()
   const [showForm, setShowForm] = useState(!!id)
+  const [showData, setShowData] = useState<string | null>(null)
+
+  if (showData) {
+    return <SensorDataView sensorId={showData} onClose={() => setShowData(null)} />
+  }
 
   if (id || showForm) {
     return (
@@ -81,6 +88,7 @@ export function SensorsPage() {
                   key={sensor.id}
                   sensor={sensor}
                   onEdit={() => navigate(`/sensors/${sensor.id}`)}
+                  onViewData={() => setShowData(sensor.id)}
                   onRun={() => runMutation.mutate(sensor.id)}
                   onDelete={() => {
                     if (confirm(`Delete sensor "${sensor.name}"?`)) {
@@ -101,12 +109,14 @@ export function SensorsPage() {
 function SensorRow({
   sensor,
   onEdit,
+  onViewData,
   onRun,
   onDelete,
   isRunning,
 }: {
   sensor: Sensor
   onEdit: () => void
+  onViewData: () => void
   onRun: () => void
   onDelete: () => void
   isRunning: boolean
@@ -144,6 +154,13 @@ function SensorRow({
       </td>
       <td className="px-4 py-3">
         <div className="flex items-center justify-end gap-1">
+          <button
+            onClick={onViewData}
+            className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+            title="View Data"
+          >
+            <Eye className="h-4 w-4" />
+          </button>
           <button
             onClick={onRun}
             disabled={isRunning}
