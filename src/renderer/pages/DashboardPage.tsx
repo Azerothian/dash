@@ -163,6 +163,16 @@ export function DashboardPage() {
             {editMode ? <Unlock className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
             {editMode ? 'Editing' : 'Edit'}
           </button>
+          {editMode && currentDash && (
+            <button
+              onClick={() => setShowAddPanel(true)}
+              className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90"
+              title="Add Panel"
+            >
+              <Plus className="h-4 w-4" />
+              Add Panel
+            </button>
+          )}
         </div>
       </div>
 
@@ -181,17 +191,6 @@ export function DashboardPage() {
               onDeletePanel={(panelId) => deletePanelMutation.mutate(panelId)}
               onBatchUpdate={(updates) => batchUpdateMutation.mutate(updates)}
             />
-          )}
-          {editMode && currentDash && (
-            <div className="relative z-10 mt-4 flex justify-center">
-              <button
-                onClick={() => setShowAddPanel(true)}
-                className="flex items-center gap-2 rounded-md border-2 border-dashed border-border px-6 py-3 text-sm text-muted-foreground hover:border-primary hover:text-primary"
-              >
-                <Plus className="h-4 w-4" />
-                Add Panel
-              </button>
-            </div>
           )}
         </div>
       )}
