@@ -114,8 +114,8 @@ export class AlertService {
 
     for (const rule of alert.rules) {
       try {
-        const sql = this.buildRuleQuery(rule)
-        const rows = await this.db.all<Record<string, unknown>>(sql, rule.sensor_id)
+        const { sql, params } = this.buildRuleQuery(rule)
+        const rows = await this.db.all<Record<string, unknown>>(sql, ...params)
         const row = rows[0]
         const value = row ? Number(row.result) : null
 
@@ -152,19 +152,26 @@ export class AlertService {
     }))
   }
 
-  private buildRuleQuery(rule: AlertRule): string {
+  private buildRuleQuery(rule: AlertRule): { sql: string; params: unknown[] } {
     // Sanitize column name to prevent injection
     const column = rule.column.replace(/[^a-zA-Z0-9_]/g, '')
     const minutes = Math.max(1, Math.floor(rule.time_window_minutes))
+    const cutoff = new Date(Date.now() - minutes * 60 * 1000).toISOString()
 
     if (rule.aggregation === 'last') {
-      return `SELECT CAST(json_extract_string(data, '$.${column}') AS DOUBLE) AS result
-        FROM sensor_data WHERE sensor_id = ? AND collected_at >= now() - INTERVAL '${minutes} minutes'
-        ORDER BY collected_at DESC LIMIT 1`
+      return {
+        sql: `SELECT CAST(json_extract_string(data, '$.${column}') AS DOUBLE) AS result
+          FROM sensor_data WHERE sensor_id = ? AND collected_at >= ?
+          ORDER BY collected_at DESC LIMIT 1`,
+        params: [rule.sensor_id, cutoff],
+      }
     }
 
-    return `SELECT ${rule.aggregation}(CAST(json_extract_string(data, '$.${column}') AS DOUBLE)) AS result
-      FROM sensor_data WHERE sensor_id = ? AND collected_at >= now() - INTERVAL '${minutes} minutes'`
+    return {
+      sql: `SELECT ${rule.aggregation}(CAST(json_extract_string(data, '$.${column}') AS DOUBLE)) AS result
+        FROM sensor_data WHERE sensor_id = ? AND collected_at >= ?`,
+      params: [rule.sensor_id, cutoff],
+    }
   }
 
   private compareValue(value: number, operator: ComparisonOperator, threshold: number): boolean {

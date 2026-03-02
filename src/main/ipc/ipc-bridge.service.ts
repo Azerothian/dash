@@ -108,7 +108,7 @@ export class IpcBridgeService implements OnModuleInit {
       return alert
     })
     ipcMain.handle(IPC_CHANNELS.ALERT_HISTORY_LIST, async (_event, alertId: string, limit?: number, offset?: number) => {
-      return this.alerts.getHistory(alertId, limit, offset)
+      return this.alerts.getHistory(alertId, limit ?? 50, offset ?? 0)
     })
   }
 
