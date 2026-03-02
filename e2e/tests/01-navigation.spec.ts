@@ -134,4 +134,38 @@ test.describe('Navigation', () => {
     await expect(footer).toBeVisible()
     await expect(footer).toContainText('Dash v0.1.0')
   })
+
+  test('status bar shows sensor count', async () => {
+    const page = await app.firstWindow()
+    const footer = page.locator('footer')
+    await expect(footer.locator('text=/\\d+ sensors running/')).toBeVisible()
+  })
+
+  test('status bar shows active alerts count', async () => {
+    const page = await app.firstWindow()
+    const footer = page.locator('footer')
+    await expect(footer.locator('text=/\\d+ active alerts/')).toBeVisible()
+  })
+
+  test('status bar persists across navigation', async () => {
+    const page = await app.firstWindow()
+
+    // Navigate to Sensors
+    await page.locator('aside button', { hasText: 'Sensors' }).click()
+    await page.waitForTimeout(300)
+    await expect(page.locator('footer')).toBeVisible()
+    await expect(page.locator('footer')).toContainText('sensors running')
+
+    // Navigate to Alerts
+    await page.locator('aside button', { hasText: 'Alerts' }).click()
+    await page.waitForTimeout(300)
+    await expect(page.locator('footer')).toBeVisible()
+    await expect(page.locator('footer')).toContainText('active alerts')
+
+    // Navigate back to Dashboards
+    await page.locator('aside button', { hasText: 'Dashboards' }).click()
+    await page.waitForTimeout(300)
+    await expect(page.locator('footer')).toBeVisible()
+    await expect(page.locator('footer')).toContainText('Dash v0.1.0')
+  })
 })
