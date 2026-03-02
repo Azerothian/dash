@@ -1,7 +1,7 @@
 import { Injectable, Inject } from '@nestjs/common'
 import { v4 as uuidv4 } from 'uuid'
 import { DatabaseService } from '../database/database.service.js'
-import type { Sensor, SensorData, CreateSensor, UpdateSensor } from '@shared/entities'
+import type { Sensor, SensorData, CreateSensor, UpdateSensor, AggregationFunction } from '@shared/entities'
 
 @Injectable()
 export class SensorService {
@@ -122,6 +122,27 @@ export class SensorService {
         rules.max_rows,
       )
     }
+  }
+
+  async getAggregatedData(
+    sensorId: string, column: string, aggregation: AggregationFunction, timeWindowMinutes: number
+  ): Promise<{ result: number | null }> {
+    const col = column.replace(/[^a-zA-Z0-9_]/g, '')
+    const minutes = Math.max(1, Math.floor(timeWindowMinutes))
+    const cutoff = new Date(Date.now() - minutes * 60 * 1000).toISOString()
+
+    let sql: string
+    if (aggregation === 'last') {
+      sql = `SELECT CAST(json_extract_string(data, '$.${col}') AS DOUBLE) AS result
+        FROM sensor_data WHERE sensor_id = ? AND collected_at >= ?
+        ORDER BY collected_at DESC LIMIT 1`
+    } else {
+      sql = `SELECT ${aggregation}(CAST(json_extract_string(data, '$.${col}') AS DOUBLE)) AS result
+        FROM sensor_data WHERE sensor_id = ? AND collected_at >= ?`
+    }
+
+    const row = await this.db.get<{ result: number | null }>(sql, sensorId, cutoff)
+    return { result: row?.result ?? null }
   }
 
   private mapRow(row: Record<string, unknown>): Sensor {

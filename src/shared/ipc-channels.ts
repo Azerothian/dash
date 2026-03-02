@@ -60,6 +60,7 @@ export const IPC_CHANNELS = {
 
   // Sensor data channels
   SENSOR_DATA_LIST: 'sensor-data:list',
+  SENSOR_DATA_AGGREGATED: 'sensor-data:aggregated',
 } as const
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS]

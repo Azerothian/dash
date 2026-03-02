@@ -5,8 +5,8 @@ import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts'
-import { useSensorData } from '../../hooks/useSensors'
-import type { Panel } from '@shared/entities'
+import { useSensorData, useSensorDataAggregated } from '../../hooks/useSensors'
+import type { Panel, PanelDataSource, GraphStyleConfig } from '@shared/entities'
 
 const COLORS = [
   'hsl(var(--chart-1, 220 70% 50%))',
@@ -16,12 +16,31 @@ const COLORS = [
   'hsl(var(--chart-5, 340 75% 55%))',
 ]
 
+const DEFAULT_STYLE: GraphStyleConfig = {
+  show_grid: true,
+  show_legend: true,
+  show_dots: false,
+  stroke_width: 2,
+  fill_opacity: 0.2,
+  curve_type: 'monotone',
+}
+
 interface GraphPanelProps {
   panel: Panel
 }
 
 export function GraphPanel({ panel }: GraphPanelProps) {
-  const sensorId = panel.sensor_ids?.[0]
+  const dataSources = (panel.panel_config?.data_sources as PanelDataSource[]) || []
+  const style: GraphStyleConfig = { ...DEFAULT_STYLE, ...((panel.panel_config?.style as Partial<GraphStyleConfig>) || {}) }
+  const hasDataSources = dataSources.length > 0
+
+  const timeSeriesSources = dataSources.filter(ds => ds.aggregation === 'last')
+  const aggregatedSources = dataSources.filter(ds => ds.aggregation !== 'last')
+
+  const sensorId = hasDataSources
+    ? (timeSeriesSources[0]?.sensor_id || aggregatedSources[0]?.sensor_id)
+    : panel.sensor_ids?.[0]
+
   const { data: sensorData, isLoading } = useSensorData(sensorId, 100)
 
   const chartData = useMemo(() => {
@@ -37,8 +56,11 @@ export function GraphPanel({ panel }: GraphPanelProps) {
 
   const dataKeys = useMemo(() => {
     if (!chartData.length) return []
-    return Object.keys(chartData[0]).filter((k) => k !== 'time' && typeof chartData[0][k] === 'number')
-  }, [chartData])
+    if (hasDataSources && timeSeriesSources.length > 0) {
+      return timeSeriesSources.map(ds => ds.column)
+    }
+    return Object.keys(chartData[0]).filter((k) => k !== 'time' && typeof (chartData[0] as Record<string, unknown>)[k] === 'number')
+  }, [chartData, hasDataSources, timeSeriesSources])
 
   if (isLoading) {
     return (
@@ -73,25 +95,25 @@ export function GraphPanel({ panel }: GraphPanelProps) {
       )}
       <div className="flex-1 min-h-0">
         <ResponsiveContainer width="100%" height="100%">
-          {renderChart(panel.graph_type || 'line', chartData, dataKeys)}
+          {renderChart(panel.graph_type || 'line', chartData, dataKeys, style)}
         </ResponsiveContainer>
       </div>
     </div>
   )
 }
 
-function renderChart(type: string, data: Record<string, unknown>[], keys: string[]) {
+function renderChart(type: string, data: Record<string, unknown>[], keys: string[], style: GraphStyleConfig) {
   const commonProps = { data, margin: { top: 5, right: 10, left: 0, bottom: 5 } }
 
   switch (type) {
     case 'bar':
       return (
         <BarChart {...commonProps}>
-          <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+          {style.show_grid && <CartesianGrid strokeDasharray="3 3" className="stroke-border" />}
           <XAxis dataKey="time" tick={{ fontSize: 10 }} className="text-muted-foreground" />
           <YAxis tick={{ fontSize: 10 }} className="text-muted-foreground" />
           <Tooltip contentStyle={{ fontSize: 12 }} />
-          {keys.length > 1 && <Legend wrapperStyle={{ fontSize: 10 }} />}
+          {style.show_legend && <Legend wrapperStyle={{ fontSize: 10 }} />}
           {keys.map((k, i) => (
             <Bar key={k} dataKey={k} fill={COLORS[i % COLORS.length]} />
           ))}
@@ -101,14 +123,14 @@ function renderChart(type: string, data: Record<string, unknown>[], keys: string
     case 'area':
       return (
         <AreaChart {...commonProps}>
-          <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+          {style.show_grid && <CartesianGrid strokeDasharray="3 3" className="stroke-border" />}
           <XAxis dataKey="time" tick={{ fontSize: 10 }} className="text-muted-foreground" />
           <YAxis tick={{ fontSize: 10 }} className="text-muted-foreground" />
           <Tooltip contentStyle={{ fontSize: 12 }} />
-          {keys.length > 1 && <Legend wrapperStyle={{ fontSize: 10 }} />}
+          {style.show_legend && <Legend wrapperStyle={{ fontSize: 10 }} />}
           {keys.map((k, i) => (
-            <Area key={k} type="monotone" dataKey={k} stroke={COLORS[i % COLORS.length]}
-              fill={COLORS[i % COLORS.length]} fillOpacity={0.2} />
+            <Area key={k} type={style.curve_type as 'monotone'} dataKey={k} stroke={COLORS[i % COLORS.length]}
+              fill={COLORS[i % COLORS.length]} fillOpacity={style.fill_opacity} strokeWidth={style.stroke_width} />
           ))}
         </AreaChart>
       )
@@ -129,7 +151,7 @@ function renderChart(type: string, data: Record<string, unknown>[], keys: string
     case 'scatter':
       return (
         <ScatterChart {...commonProps}>
-          <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+          {style.show_grid && <CartesianGrid strokeDasharray="3 3" className="stroke-border" />}
           <XAxis dataKey={keys[0]} name={keys[0]} tick={{ fontSize: 10 }} className="text-muted-foreground" />
           <YAxis dataKey={keys[1] || keys[0]} name={keys[1] || keys[0]} tick={{ fontSize: 10 }} className="text-muted-foreground" />
           <Tooltip contentStyle={{ fontSize: 12 }} />
@@ -145,23 +167,23 @@ function renderChart(type: string, data: Record<string, unknown>[], keys: string
           <PolarRadiusAxis tick={{ fontSize: 9 }} />
           {keys.map((k, i) => (
             <Radar key={k} name={k} dataKey={k} stroke={COLORS[i % COLORS.length]}
-              fill={COLORS[i % COLORS.length]} fillOpacity={0.2} />
+              fill={COLORS[i % COLORS.length]} fillOpacity={style.fill_opacity} />
           ))}
-          {keys.length > 1 && <Legend wrapperStyle={{ fontSize: 10 }} />}
+          {style.show_legend && <Legend wrapperStyle={{ fontSize: 10 }} />}
         </RadarChart>
       )
 
     default: // line
       return (
         <LineChart {...commonProps}>
-          <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+          {style.show_grid && <CartesianGrid strokeDasharray="3 3" className="stroke-border" />}
           <XAxis dataKey="time" tick={{ fontSize: 10 }} className="text-muted-foreground" />
           <YAxis tick={{ fontSize: 10 }} className="text-muted-foreground" />
           <Tooltip contentStyle={{ fontSize: 12 }} />
-          {keys.length > 1 && <Legend wrapperStyle={{ fontSize: 10 }} />}
+          {style.show_legend && <Legend wrapperStyle={{ fontSize: 10 }} />}
           {keys.map((k, i) => (
-            <Line key={k} type="monotone" dataKey={k} stroke={COLORS[i % COLORS.length]}
-              strokeWidth={2} dot={false} />
+            <Line key={k} type={style.curve_type as 'monotone'} dataKey={k} stroke={COLORS[i % COLORS.length]}
+              strokeWidth={style.stroke_width} dot={style.show_dots} />
           ))}
         </LineChart>
       )

@@ -11,6 +11,23 @@ export type AggregationFunction = 'avg' | 'min' | 'max' | 'sum' | 'count' | 'las
 export type ComparisonOperator = '>' | '>=' | '<' | '<=' | '==' | '!='
 export type AlertSeverity = 'notice' | 'warning' | 'error'
 
+export interface PanelDataSource {
+  sensor_id: string
+  column: string
+  aggregation: AggregationFunction
+  time_window_minutes: number
+  label?: string
+}
+
+export interface GraphStyleConfig {
+  show_grid: boolean
+  show_legend: boolean
+  show_dots: boolean
+  stroke_width: number
+  fill_opacity: number
+  curve_type: 'monotone' | 'linear' | 'step'
+}
+
 export interface AlertRule {
   sensor_id: string
   column: string

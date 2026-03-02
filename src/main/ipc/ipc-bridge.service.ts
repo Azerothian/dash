@@ -8,7 +8,7 @@ import { AlertService } from '../alert/alert.service.js'
 import { DashboardService } from '../dashboard/dashboard.service.js'
 import { NotificationService } from '../notification/notification.service.js'
 import { CronManagerService } from '../cron/cron-manager.service.js'
-import type { Settings, CreateSensor, UpdateSensor, CreateAlert, UpdateAlert, CreateDashboard, UpdateDashboard, CreatePanel, UpdatePanel, GridstackConfig, CreateNotification, UpdateNotification } from '@shared/entities'
+import type { Settings, CreateSensor, UpdateSensor, CreateAlert, UpdateAlert, CreateDashboard, UpdateDashboard, CreatePanel, UpdatePanel, GridstackConfig, CreateNotification, UpdateNotification, AggregationFunction } from '@shared/entities'
 
 @Injectable()
 export class IpcBridgeService implements OnModuleInit {
@@ -74,6 +74,9 @@ export class IpcBridgeService implements OnModuleInit {
     })
     ipcMain.handle(IPC_CHANNELS.SENSOR_DATA_LIST, async (_event, sensorId: string, limit?: number) => {
       return this.sensors.getData(sensorId, limit)
+    })
+    ipcMain.handle(IPC_CHANNELS.SENSOR_DATA_AGGREGATED, async (_event, sensorId: string, column: string, aggregation: string, timeWindowMinutes: number) => {
+      return this.sensors.getAggregatedData(sensorId, column, aggregation as AggregationFunction, timeWindowMinutes)
     })
   }
 

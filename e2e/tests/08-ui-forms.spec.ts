@@ -325,12 +325,21 @@ test.describe('Dashboard Graph Panels', () => {
     await page.locator('button', { hasText: 'Line' }).click()
     await page.waitForTimeout(300)
 
-    // Select sensor from SensorPicker
-    const sensorSelect = page.locator('select').filter({ hasText: 'Add sensor...' })
-    if (await sensorSelect.isVisible()) {
-      await sensorSelect.selectOption({ label: prerequisiteSensorName })
-      await page.waitForTimeout(300)
-    }
+    // Click "Add Data Source" button
+    await page.locator('button', { hasText: 'Add Data Source' }).click()
+    await page.waitForTimeout(300)
+
+    // Select sensor from data source dropdown
+    const sensorSelect = page.locator('select').filter({ hasText: 'Select sensor...' })
+    await sensorSelect.selectOption({ label: prerequisiteSensorName })
+    await page.waitForTimeout(300)
+
+    // Select column from dropdown
+    const columnSelect = page.locator('select').filter({ hasText: 'Select column...' })
+    await columnSelect.selectOption('value')
+    await page.waitForTimeout(300)
+
+    // Aggregation defaults to 'Last (raw)', time window to '15 min' - leave defaults
 
     // Fill panel title
     await page.locator('input[placeholder="Panel title"]').fill('Test Graph Panel')
@@ -374,5 +383,102 @@ test.describe('Dashboard Graph Panels', () => {
 
     // Verify panel still exists (shows "No data yet" since sensor has no data)
     await expect(page.locator('text=No data yet')).toBeVisible()
+  })
+
+  test('panel shows graph after sensor has data', async () => {
+    // Run the prerequisite sensor to generate data
+    await ipc.runSensor(prerequisiteSensorId)
+    await page.waitForTimeout(2000)
+
+    // Verify data was actually collected via IPC
+    const sensorData = await ipc.listSensorData(prerequisiteSensorId)
+    expect((sensorData as unknown[]).length).toBeGreaterThan(0)
+
+    // Reload and navigate back to the dashboard
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await page.locator('header').waitFor({ state: 'visible', timeout: 15_000 })
+    await page.waitForTimeout(1000)
+
+    await page.locator('aside button', { hasText: 'Dashboards' }).click()
+    await page.waitForTimeout(500)
+
+    // Click the dashboard tab (wait for it to appear)
+    const dashTab = page.locator('button', { hasText: 'UI Form Test Dashboard' })
+    await dashTab.waitFor({ state: 'visible', timeout: 10_000 })
+    await dashTab.click()
+    await page.waitForTimeout(1000)
+
+    // Panel should now show chart data — verify it no longer says "No data yet"
+    await expect(page.locator('text=No data yet')).not.toBeVisible({ timeout: 10_000 })
+  })
+
+  test('style options are configurable', async () => {
+    // Navigate to the test dashboard explicitly
+    await page.locator('aside button', { hasText: 'Dashboards' }).click()
+    await page.waitForTimeout(500)
+    const dashTab = page.locator('button', { hasText: 'UI Form Test Dashboard' })
+    if (await dashTab.isVisible()) {
+      await dashTab.click()
+      await page.waitForTimeout(500)
+    }
+
+    // Enter edit mode
+    await page.locator('button', { hasText: /^Edit$/ }).click()
+    await page.waitForTimeout(500)
+
+    // Open Add Panel sheet
+    await page.locator('button', { hasText: 'Add Panel' }).first().click()
+    await page.waitForTimeout(500)
+
+    // Verify panel options sheet opens
+    await expect(page.locator('h3', { hasText: 'Add Panel' })).toBeVisible()
+
+    // Click "Style Options" to expand
+    await page.locator('button', { hasText: 'Style Options' }).click()
+    await page.waitForTimeout(300)
+
+    // Verify style controls are visible
+    await expect(page.locator('label', { hasText: 'Show Grid' })).toBeVisible()
+    await expect(page.locator('label', { hasText: 'Show Legend' })).toBeVisible()
+    await expect(page.locator('label', { hasText: 'Show Dots' })).toBeVisible()
+
+    // Toggle Show Dots on
+    const showDotsCheckbox = page.locator('label', { hasText: 'Show Dots' }).locator('input[type="checkbox"]')
+    await showDotsCheckbox.check()
+
+    // Change Curve Type to step
+    const curveSelect = page.locator('select').filter({ has: page.locator('option[value="step"]') })
+    await curveSelect.selectOption('step')
+
+    // Close the sheet by clicking the backdrop overlay
+    await page.locator('.fixed.inset-0.bg-black\\/30').click({ force: true })
+    await page.waitForTimeout(500)
+
+    // Verify sheet is closed
+    await expect(page.locator('h3', { hasText: 'Add Panel' })).not.toBeVisible()
+
+    // Exit edit mode
+    await page.locator('button', { hasText: 'Editing' }).click()
+    await page.waitForTimeout(500)
+  })
+
+  test('panel persists data source config after reload', async () => {
+    // Verify panel data_sources config persisted via IPC
+    const dashboards = await ipc.listDashboards() as { name: string; id: string }[]
+    const dash = dashboards.find((d) => d.name === 'UI Form Test Dashboard')
+    if (!dash) {
+      // Dashboard not created in this test run (e.g. running tests in isolation) — skip
+      return
+    }
+
+    const dashDetail = await ipc.getDashboard(dash.id) as { panels?: { id: string; panel_config: { data_sources?: unknown[] } }[] }
+    const panels = dashDetail?.panels ?? []
+    expect(panels.length).toBeGreaterThan(0)
+
+    const panel = panels[0]
+    createdPanelIds.push(panel.id)
+    const ds = panel.panel_config?.data_sources
+    expect(Array.isArray(ds)).toBe(true)
+    expect((ds as unknown[]).length).toBeGreaterThan(0)
   })
 })

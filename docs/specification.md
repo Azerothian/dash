@@ -301,6 +301,7 @@ sequenceDiagram
 | S-11 | As a user, I want to set environment variables per sensor so that scripts can access secrets/config. | Key-value env var editor; vars passed to child process environment. |
 | S-12 | As a user, I want to see a list of all sensors with their status so that I have an overview of data collection. | Virtualized list showing name, type, cron, last run, enabled/disabled. |
 | S-13 | As a user, I want to view collected sensor data so that I can inspect the values being gathered. | View Data button opens a table with Collected At + dynamic columns from table_definition; supports limit selection. |
+| S-14 | As a user, I want to configure panel data sources with aggregation modifiers so I can display avg, max, min etc. over time windows. | Panel options sheet shows Data Sources builder with sensor, column, aggregation, time window, and label fields; style options section controls grid, legend, dots, stroke width, fill opacity, and curve type. |
 
 ### 3.4 Alerts (12 stories)
 
@@ -986,6 +987,37 @@ The app targets desktop Electron windows. Minimum supported size: **1024×768**.
 │        │   [+ Add Panel]                  │             │
 └────────┴──────────────────────────────────┴─────────────┘
   Click a panel to show its options on the right side
+```
+
+### 7.3a Panel Options Sheet
+
+```
+┌──────────────────────────────────┐
+│  Add Panel                     ✕ │
+├──────────────────────────────────┤
+│ Panel Type: [Graph ▼]            │
+│ Graph Type: [Line] Bar Area ...  │
+│                                  │
+│ Data Sources:                    │
+│ ┌──────────────────────────────┐ │
+│ │ Sensor: [CPU Monitor ▼]     │ │
+│ │ Column: [cpu_pct    ▼]      │ │
+│ │ Aggregation: [Last (raw) ▼] │ │
+│ │ Window: [5 min ▼]      [✕]  │ │
+│ └──────────────────────────────┘ │
+│ [+ Add Data Source]              │
+│                                  │
+│ Style:                           │
+│ Show Grid: [✓] Show Legend: [✓]  │
+│ Show Dots: [ ] Stroke: [2▼]     │
+│ Curve: [monotone▼]              │
+│                                  │
+│ Title: [CPU Usage            ]   │
+│                                  │
+│ ┌──────────────────────────────┐ │
+│ │       [Add Panel]            │ │
+│ └──────────────────────────────┘ │
+└──────────────────────────────────┘
 ```
 
 ### 7.4 Sensor List

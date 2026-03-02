@@ -22,6 +22,9 @@ export class IpcHelper {
   deleteSensor(id: string) { return this.invoke<void>('sensor:delete', id) }
   runSensor(id: string) { return this.invoke<unknown>('sensor:run', id) }
   listSensorData(sensorId: string, limit?: number) { return this.invoke<unknown[]>('sensor-data:list', sensorId, limit) }
+  getSensorDataAggregated(sensorId: string, column: string, aggregation: string, timeWindowMinutes: number) {
+    return this.invoke<{ result: number | null }>('sensor-data:aggregated', sensorId, column, aggregation, timeWindowMinutes)
+  }
 
   // Alerts
   listAlerts() { return this.invoke<unknown[]>('alert:list') }

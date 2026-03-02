@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
-import type { Sensor, CreateSensor, UpdateSensor, SensorData } from '@shared/entities'
+import type { Sensor, CreateSensor, UpdateSensor, SensorData, AggregationFunction } from '@shared/entities'
 import { IPC_CHANNELS } from '@shared/ipc-channels'
 
 export function useSensors() {
@@ -33,6 +33,17 @@ export function useSensorData(sensorId: string | undefined, limit = 100) {
     queryKey: ['sensor-data', sensorId, limit],
     queryFn: () => window.api.invoke<SensorData[]>(IPC_CHANNELS.SENSOR_DATA_LIST, sensorId, limit),
     enabled: !!sensorId,
+  })
+}
+
+export function useSensorDataAggregated(
+  sensorId: string | undefined, column: string, aggregation: AggregationFunction, timeWindowMinutes: number
+) {
+  return useQuery<{ result: number | null }>({
+    queryKey: ['sensor-data-agg', sensorId, column, aggregation, timeWindowMinutes],
+    queryFn: () => window.api.invoke<{ result: number | null }>(IPC_CHANNELS.SENSOR_DATA_AGGREGATED, sensorId, column, aggregation, timeWindowMinutes),
+    enabled: !!sensorId && !!column,
+    refetchInterval: 30_000,
   })
 }
 
