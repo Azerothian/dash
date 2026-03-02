@@ -7,7 +7,9 @@ export function StatusBar() {
 
   useEffect(() => {
     const unsub = window.api.on(IPC_CHANNELS.CRON_TASK_STATUS, (_event: unknown, data: { runningSensors: number; activeAlerts: number }) => {
-      setStatus(data)
+      if (data && typeof data.runningSensors === 'number') {
+        setStatus(data)
+      }
     })
     return unsub
   }, [])
