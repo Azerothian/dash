@@ -121,6 +121,74 @@ test.describe('Alerts', () => {
     testAlertId = ''
   })
 
+  test('filter persistence via IPC', async () => {
+    const alertData = makeAlert([testSensorId], {
+      name: 'Filter Test Alert',
+      rules: [{
+        sensor_id: testSensorId,
+        column: 'value',
+        aggregation: 'last',
+        time_window_minutes: 60,
+        operator: '>',
+        threshold: 100,
+        severity: 'warning',
+        filters: [
+          { column: 'value', operator: '>=', value: 10 },
+        ],
+      }],
+    })
+    const created = await ipc.createAlert(alertData)
+    const fetched = await ipc.getAlert(created.id) as { rules: Array<{ filters?: Array<{ column: string; operator: string; value: number }> }> }
+    expect(fetched.rules[0].filters).toBeDefined()
+    expect(fetched.rules[0].filters!.length).toBe(1)
+    expect(fetched.rules[0].filters![0].column).toBe('value')
+    expect(fetched.rules[0].filters![0].operator).toBe('>=')
+    expect(fetched.rules[0].filters![0].value).toBe(10)
+    await ipc.deleteAlert(created.id)
+  })
+
+  test('mutation persistence via IPC', async () => {
+    const alertData = {
+      ...makeAlert([testSensorId], { name: 'Mutation Test Alert' }),
+      mutations: [
+        {
+          type: 'aggregation',
+          name: 'avg_value',
+          sensor_id: testSensorId,
+          column: 'value',
+          aggregation: 'avg',
+          time_window_minutes: 60,
+        },
+        {
+          type: 'expression',
+          name: 'doubled',
+          left_operand: 'avg_value',
+          operator: '*',
+          right_operand: 2,
+        },
+      ],
+      rules: [{
+        mutation_ref: 'doubled',
+        column: '',
+        aggregation: 'last',
+        time_window_minutes: 60,
+        operator: '>',
+        threshold: 50,
+        severity: 'error',
+      }],
+    }
+    const created = await ipc.createAlert(alertData)
+    const fetched = await ipc.getAlert(created.id) as { mutations: Array<{ type: string; name: string }>; rules: Array<{ mutation_ref?: string }> }
+    expect(fetched.mutations).toBeDefined()
+    expect(fetched.mutations.length).toBe(2)
+    expect(fetched.mutations[0].name).toBe('avg_value')
+    expect(fetched.mutations[0].type).toBe('aggregation')
+    expect(fetched.mutations[1].name).toBe('doubled')
+    expect(fetched.mutations[1].type).toBe('expression')
+    expect(fetched.rules[0].mutation_ref).toBe('doubled')
+    await ipc.deleteAlert(created.id)
+  })
+
   test('tag-based alert evaluates across multiple sensors', async () => {
     // Create 2 sensors with the same tag and same schema
     const tag = 'e2e-alert-tag'

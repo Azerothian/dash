@@ -2,7 +2,7 @@ import { Injectable, Inject } from '@nestjs/common'
 import { v4 as uuidv4 } from 'uuid'
 import { DatabaseService } from '../database/database.service.js'
 import { SensorService } from '../sensor/sensor.service.js'
-import type { Alert, AlertHistory, AlertRule, AlertSeverity, AlertState, ComparisonOperator, CreateAlert, UpdateAlert, Sensor } from '@shared/entities'
+import type { Alert, AlertFilter, AlertHistory, AlertMutation, AlertMutationAggregation, AlertMutationExpression, AlertRule, AlertSeverity, AlertState, ComparisonOperator, CreateAlert, UpdateAlert, Sensor } from '@shared/entities'
 
 const SEVERITY_ORDER: Record<AlertSeverity, number> = { notice: 1, warning: 2, error: 3 }
 const NUMERIC_TYPES = ['INTEGER', 'BIGINT', 'DOUBLE', 'TIMESTAMP']
@@ -38,11 +38,11 @@ export class AlertService {
     const now = new Date().toISOString()
     await this.db.run(
       `INSERT INTO alert (id, name, description, rules, cron_expression,
-        state, priority, acknowledged, enabled, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 'ok', ?, false, ?, ?, ?)`,
+        state, priority, acknowledged, enabled, mutations, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 'ok', ?, false, ?, ?, ?, ?)`,
       id, data.name, data.description || '', JSON.stringify(data.rules || []),
       data.cron_expression, data.priority,
-      data.enabled ?? true, now, now,
+      data.enabled ?? true, JSON.stringify(data.mutations || []), now, now,
     )
     return (await this.get(id))!
   }
@@ -60,6 +60,7 @@ export class AlertService {
     if (data.cron_expression !== undefined) { fields.push('cron_expression = ?'); values.push(data.cron_expression) }
     if (data.priority !== undefined) { fields.push('priority = ?'); values.push(data.priority) }
     if (data.enabled !== undefined) { fields.push('enabled = ?'); values.push(data.enabled) }
+    if (data.mutations !== undefined) { fields.push('mutations = ?'); values.push(JSON.stringify(data.mutations)) }
 
     if (fields.length > 0) {
       fields.push('updated_at = ?')
@@ -126,10 +127,85 @@ export class AlertService {
     const allSensors = await this.sensorService.list()
     const sensorMap = new Map<string, Sensor>(allSensors.map((s) => [s.id, s]))
 
+    // Evaluate mutations
+    const mutationValues = new Map<string, number | string | boolean | null>()
+    if (alert.mutations && alert.mutations.length > 0) {
+      // Pass 1: aggregation mutations
+      for (const mut of alert.mutations) {
+        if (mut.type !== 'aggregation') continue
+        try {
+          let sensorIds: string[] = []
+          if (mut.tag && !mut.sensor_id) {
+            sensorIds = allSensors.filter((s) => s.tags.includes(mut.tag!)).map((s) => s.id)
+          } else if (mut.sensor_id) {
+            sensorIds = [mut.sensor_id]
+          }
+          let resultValue: number | string | boolean | null = null
+          for (const sid of sensorIds) {
+            const sensor = sensorMap.get(sid)
+            const columnType = this.getColumnType(sensor, mut.column)
+            const pseudoRule: AlertRule = {
+              sensor_id: sid,
+              column: mut.column,
+              aggregation: mut.aggregation,
+              time_window_minutes: mut.time_window_minutes,
+              operator: '>',
+              threshold: 0,
+              severity: 'warning',
+              filters: mut.filters,
+            }
+            const { sql, params } = this.buildRuleQuery(pseudoRule, sid, columnType)
+            const rows = await this.db.all<Record<string, unknown>>(sql, ...params)
+            const raw = rows[0]?.result
+            const val = this.coerceValue(raw, columnType)
+            if (val !== null) resultValue = val
+          }
+          mutationValues.set(mut.name, resultValue)
+        } catch {
+          mutationValues.set(mut.name, null)
+        }
+      }
+      // Pass 2: expression mutations
+      for (const mut of alert.mutations) {
+        if (mut.type !== 'expression') continue
+        try {
+          const left = typeof mut.left_operand === 'number' ? mut.left_operand : Number(mutationValues.get(mut.left_operand) ?? NaN)
+          const right = typeof mut.right_operand === 'number' ? mut.right_operand : Number(mutationValues.get(mut.right_operand) ?? NaN)
+          if (isNaN(left) || isNaN(right)) {
+            mutationValues.set(mut.name, null)
+            continue
+          }
+          let result: number | null = null
+          switch (mut.operator) {
+            case '+': result = left + right; break
+            case '-': result = left - right; break
+            case '*': result = left * right; break
+            case '/': result = right === 0 ? null : left / right; break
+          }
+          mutationValues.set(mut.name, result)
+        } catch {
+          mutationValues.set(mut.name, null)
+        }
+      }
+    }
+
     let highestSeverity: AlertSeverity | null = null
     const ruleResults: Array<{ rule: AlertRule; value: number | string | boolean | null; triggered: boolean; sensor_id?: string }> = []
 
     for (const rule of alert.rules) {
+      // Check if rule references a mutation
+      if (rule.mutation_ref && mutationValues.has(rule.mutation_ref)) {
+        const mutValue = mutationValues.get(rule.mutation_ref)!
+        const triggered = mutValue !== null && this.compareValue(mutValue, rule.operator, rule.threshold)
+        ruleResults.push({ rule, value: mutValue, triggered })
+        if (triggered) {
+          if (!highestSeverity || SEVERITY_ORDER[rule.severity] > SEVERITY_ORDER[highestSeverity]) {
+            highestSeverity = rule.severity
+          }
+        }
+        continue
+      }
+
       try {
         // Determine which sensors to evaluate
         let sensorIds: string[] = []
@@ -197,6 +273,19 @@ export class AlertService {
     const minutes = Math.max(1, Math.floor(rule.time_window_minutes))
     const cutoff = new Date(Date.now() - minutes * 60 * 1000).toISOString()
 
+    let filterSql = ''
+    const filterParams: unknown[] = []
+    for (const filter of rule.filters || []) {
+      const filterCol = filter.column.replace(/[^a-zA-Z0-9_]/g, '')
+      const sqlOp = filter.operator === '==' ? '=' : filter.operator
+      if (typeof filter.value === 'number') {
+        filterSql += ` AND CAST(json_extract_string(data, '$.${filterCol}') AS DOUBLE) ${sqlOp} ?`
+      } else {
+        filterSql += ` AND json_extract_string(data, '$.${filterCol}') ${sqlOp} ?`
+      }
+      filterParams.push(filter.value)
+    }
+
     const isNonNumeric = columnType && !isNumericType(columnType)
 
     // For non-numeric types with aggregations other than last/count, fall back to last
@@ -209,31 +298,31 @@ export class AlertService {
         // Don't CAST for VARCHAR/BOOLEAN
         return {
           sql: `SELECT json_extract_string(data, '$.${column}') AS result
-            FROM sensor_data WHERE sensor_id = ? AND collected_at >= ?
+            FROM sensor_data WHERE sensor_id = ? AND collected_at >= ?${filterSql}
             ORDER BY collected_at DESC LIMIT 1`,
-          params: [sensorId, cutoff],
+          params: [sensorId, cutoff, ...filterParams],
         }
       }
       return {
         sql: `SELECT CAST(json_extract_string(data, '$.${column}') AS DOUBLE) AS result
-          FROM sensor_data WHERE sensor_id = ? AND collected_at >= ?
+          FROM sensor_data WHERE sensor_id = ? AND collected_at >= ?${filterSql}
           ORDER BY collected_at DESC LIMIT 1`,
-        params: [sensorId, cutoff],
+        params: [sensorId, cutoff, ...filterParams],
       }
     }
 
     if (effectiveAgg === 'count') {
       return {
         sql: `SELECT count(json_extract_string(data, '$.${column}')) AS result
-          FROM sensor_data WHERE sensor_id = ? AND collected_at >= ?`,
-        params: [sensorId, cutoff],
+          FROM sensor_data WHERE sensor_id = ? AND collected_at >= ?${filterSql}`,
+        params: [sensorId, cutoff, ...filterParams],
       }
     }
 
     return {
       sql: `SELECT ${effectiveAgg}(CAST(json_extract_string(data, '$.${column}') AS DOUBLE)) AS result
-        FROM sensor_data WHERE sensor_id = ? AND collected_at >= ?`,
-      params: [sensorId, cutoff],
+        FROM sensor_data WHERE sensor_id = ? AND collected_at >= ?${filterSql}`,
+      params: [sensorId, cutoff, ...filterParams],
     }
   }
 
@@ -272,6 +361,7 @@ export class AlertService {
       name: row.name as string,
       description: (row.description as string) || '',
       rules: typeof row.rules === 'string' ? JSON.parse(row.rules) : (row.rules as AlertRule[]) || [],
+      mutations: typeof row.mutations === 'string' ? JSON.parse(row.mutations) : (row.mutations as AlertMutation[]) || [],
       cron_expression: row.cron_expression as string,
       state: row.state as AlertState,
       priority: row.priority as number,

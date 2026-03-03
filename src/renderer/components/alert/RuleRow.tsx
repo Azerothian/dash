@@ -1,6 +1,7 @@
-import { X } from 'lucide-react'
+import { X, Plus } from 'lucide-react'
 import { useSensors } from '../../hooks/useSensors'
-import type { AlertRule, AggregationFunction, ComparisonOperator, AlertSeverity, Sensor, ColumnDefinition } from '@shared/entities'
+import type { AlertRule, AggregationFunction, ComparisonOperator, AlertSeverity, Sensor, ColumnDefinition, AlertFilter } from '@shared/entities'
+import { FilterRow } from './FilterRow'
 
 const ALL_AGGREGATIONS: AggregationFunction[] = ['avg', 'min', 'max', 'sum', 'count', 'last']
 const NUMERIC_AGGREGATIONS: AggregationFunction[] = ['avg', 'min', 'max', 'sum', 'count', 'last']
@@ -42,14 +43,15 @@ interface RuleRowProps {
   rule: AlertRule
   onChange: (rule: AlertRule) => void
   onRemove: () => void
+  mutationNames?: string[]
 }
 
-type TargetMode = 'sensor' | 'tag'
+type TargetMode = 'sensor' | 'tag' | 'mutation'
 
-export function RuleRow({ rule, onChange, onRemove }: RuleRowProps) {
+export function RuleRow({ rule, onChange, onRemove, mutationNames = [] }: RuleRowProps) {
   const { data: sensors = [] } = useSensors()
 
-  const targetMode: TargetMode = rule.tag !== undefined ? 'tag' : 'sensor'
+  const targetMode: TargetMode = rule.mutation_ref !== undefined ? 'mutation' : rule.tag !== undefined ? 'tag' : 'sensor'
 
   // Collect all unique tags from sensors
   const allTags = Array.from(new Set(sensors.flatMap((s: Sensor) => s.tags || [])))
@@ -89,9 +91,11 @@ export function RuleRow({ rule, onChange, onRemove }: RuleRowProps) {
 
   const handleTargetModeChange = (mode: TargetMode) => {
     if (mode === 'tag') {
-      onChange({ ...rule, sensor_id: undefined, tag: '', column: '', threshold: 0, operator: '>', aggregation: 'last' })
+      onChange({ ...rule, sensor_id: undefined, tag: '', column: '', threshold: 0, operator: '>', aggregation: 'last', mutation_ref: undefined })
+    } else if (mode === 'mutation') {
+      onChange({ ...rule, sensor_id: undefined, tag: undefined, column: '', mutation_ref: '', threshold: 0, operator: '>', aggregation: 'last', time_window_minutes: 60 })
     } else {
-      onChange({ ...rule, sensor_id: '', tag: undefined, column: '', threshold: 0, operator: '>', aggregation: 'last' })
+      onChange({ ...rule, sensor_id: '', tag: undefined, column: '', threshold: 0, operator: '>', aggregation: 'last', mutation_ref: undefined })
     }
   }
 
@@ -125,6 +129,15 @@ export function RuleRow({ rule, onChange, onRemove }: RuleRowProps) {
             >
               Tag
             </button>
+            {mutationNames.length > 0 && (
+              <button
+                type="button"
+                onClick={() => handleTargetModeChange('mutation')}
+                className={`px-2 py-0.5 ${targetMode === 'mutation' ? 'bg-primary text-primary-foreground' : 'bg-background text-muted-foreground hover:bg-accent'}`}
+              >
+                Mutation
+              </button>
+            )}
           </div>
         </div>
         <button
@@ -136,78 +149,96 @@ export function RuleRow({ rule, onChange, onRemove }: RuleRowProps) {
         </button>
       </div>
 
-      <div className={`grid gap-2 ${showWindow ? 'grid-cols-4' : 'grid-cols-3'}`}>
-        {targetMode === 'sensor' ? (
+      {targetMode === 'mutation' ? (
+        <div className="grid gap-2 grid-cols-1">
           <div>
-            <label className="block text-xs text-muted-foreground mb-1">Sensor</label>
+            <label className="block text-xs text-muted-foreground mb-1">Mutation</label>
             <select
               className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
-              value={rule.sensor_id || ''}
-              onChange={(e) => onChange({ ...rule, sensor_id: e.target.value, tag: undefined, column: '' })}
+              value={rule.mutation_ref || ''}
+              onChange={(e) => onChange({ ...rule, mutation_ref: e.target.value })}
             >
-              <option value="">Select sensor...</option>
-              {sensors.map((s: Sensor) => (
-                <option key={s.id} value={s.id}>{s.name}</option>
+              <option value="">Select mutation...</option>
+              {mutationNames.map((name) => (
+                <option key={name} value={name}>{name}</option>
               ))}
             </select>
           </div>
-        ) : (
+        </div>
+      ) : (
+        <div className={`grid gap-2 ${showWindow ? 'grid-cols-4' : 'grid-cols-3'}`}>
+          {targetMode === 'sensor' ? (
+            <div>
+              <label className="block text-xs text-muted-foreground mb-1">Sensor</label>
+              <select
+                className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+                value={rule.sensor_id || ''}
+                onChange={(e) => onChange({ ...rule, sensor_id: e.target.value, tag: undefined, column: '' })}
+              >
+                <option value="">Select sensor...</option>
+                {sensors.map((s: Sensor) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <div>
+              <label className="block text-xs text-muted-foreground mb-1">Tag</label>
+              <select
+                className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+                value={rule.tag || ''}
+                onChange={(e) => onChange({ ...rule, tag: e.target.value, sensor_id: undefined, column: '' })}
+              >
+                <option value="">Select tag...</option>
+                {allTags.map((t) => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div>
-            <label className="block text-xs text-muted-foreground mb-1">Tag</label>
+            <label className="block text-xs text-muted-foreground mb-1">Column</label>
             <select
               className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
-              value={rule.tag || ''}
-              onChange={(e) => onChange({ ...rule, tag: e.target.value, sensor_id: undefined, column: '' })}
+              value={rule.column}
+              onChange={(e) => handleColumnChange(e.target.value)}
+              disabled={targetMode === 'sensor' ? !rule.sensor_id : !rule.tag}
             >
-              <option value="">Select tag...</option>
-              {allTags.map((t) => (
-                <option key={t} value={t}>{t}</option>
+              <option value="">Select column...</option>
+              {columnNames.map((col) => (
+                <option key={col} value={col}>{col}</option>
               ))}
             </select>
           </div>
-        )}
 
-        <div>
-          <label className="block text-xs text-muted-foreground mb-1">Column</label>
-          <select
-            className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
-            value={rule.column}
-            onChange={(e) => handleColumnChange(e.target.value)}
-            disabled={targetMode === 'sensor' ? !rule.sensor_id : !rule.tag}
-          >
-            <option value="">Select column...</option>
-            {columnNames.map((col) => (
-              <option key={col} value={col}>{col}</option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-xs text-muted-foreground mb-1">Aggregation</label>
-          <select
-            className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
-            value={rule.aggregation}
-            onChange={(e) => onChange({ ...rule, aggregation: e.target.value as AggregationFunction })}
-          >
-            {aggregations.map((a) => (
-              <option key={a} value={a}>{a}</option>
-            ))}
-          </select>
-        </div>
-
-        {showWindow && (
           <div>
-            <label className="block text-xs text-muted-foreground mb-1">Window (min)</label>
-            <input
-              type="number"
-              min={1}
+            <label className="block text-xs text-muted-foreground mb-1">Aggregation</label>
+            <select
               className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
-              value={rule.time_window_minutes}
-              onChange={(e) => onChange({ ...rule, time_window_minutes: Number(e.target.value) || 1 })}
-            />
+              value={rule.aggregation}
+              onChange={(e) => onChange({ ...rule, aggregation: e.target.value as AggregationFunction })}
+            >
+              {aggregations.map((a) => (
+                <option key={a} value={a}>{a}</option>
+              ))}
+            </select>
           </div>
-        )}
-      </div>
+
+          {showWindow && (
+            <div>
+              <label className="block text-xs text-muted-foreground mb-1">Window (min)</label>
+              <input
+                type="number"
+                min={1}
+                className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+                value={rule.time_window_minutes}
+                onChange={(e) => onChange({ ...rule, time_window_minutes: Number(e.target.value) || 1 })}
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-3 gap-2">
         <div>
@@ -266,6 +297,36 @@ export function RuleRow({ rule, onChange, onRemove }: RuleRowProps) {
           </select>
         </div>
       </div>
+
+      {targetMode !== 'mutation' && (
+        <div className="space-y-1">
+          <label className="block text-xs text-muted-foreground">Filters</label>
+          {(rule.filters || []).map((filter, fi) => (
+            <FilterRow
+              key={fi}
+              filter={filter}
+              columns={columnNames}
+              onChange={(f) => {
+                const next = [...(rule.filters || [])]
+                next[fi] = f
+                onChange({ ...rule, filters: next })
+              }}
+              onRemove={() => {
+                const next = (rule.filters || []).filter((_, i) => i !== fi)
+                onChange({ ...rule, filters: next })
+              }}
+            />
+          ))}
+          <button
+            type="button"
+            onClick={() => onChange({ ...rule, filters: [...(rule.filters || []), { column: '', operator: '==', value: '' }] })}
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+          >
+            <Plus className="h-3 w-3" />
+            Add Filter
+          </button>
+        </div>
+      )}
     </div>
   )
 }

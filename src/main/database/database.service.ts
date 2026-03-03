@@ -151,6 +151,9 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     // Migrate from old schema if needed
     await this.migrateAlertSchema()
 
+    // Add mutations column to alert if missing
+    await this.migrateAlertMutations()
+
     // Add script_source and script_file_path columns if missing
     await this.migrateSensorScriptSource()
 
@@ -302,6 +305,14 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         updated_at TIMESTAMP DEFAULT current_timestamp
       )
     `)
+  }
+
+  private async migrateAlertMutations(): Promise<void> {
+    try {
+      await this.all("SELECT mutations FROM alert LIMIT 1")
+    } catch {
+      await this.run("ALTER TABLE alert ADD COLUMN mutations JSON DEFAULT '[]'")
+    }
   }
 
   private async migrateSensorMonitorId(): Promise<void> {

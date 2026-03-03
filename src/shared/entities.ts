@@ -10,6 +10,36 @@ export type CronTaskType = 'sensor' | 'alert' | 'notification' | 'monitor'
 export type AggregationFunction = 'avg' | 'min' | 'max' | 'sum' | 'count' | 'last'
 export type ComparisonOperator = '>' | '>=' | '<' | '<=' | '==' | '!='
 export type AlertSeverity = 'notice' | 'warning' | 'error'
+export type FilterOperator = '==' | '!=' | '>' | '<' | '>=' | '<='
+export type MathOperator = '+' | '-' | '*' | '/'
+export type MutationType = 'aggregation' | 'expression'
+
+export interface AlertFilter {
+  column: string
+  operator: FilterOperator
+  value: string | number | boolean
+}
+
+export interface AlertMutationAggregation {
+  type: 'aggregation'
+  name: string
+  sensor_id?: string
+  tag?: string
+  column: string
+  aggregation: AggregationFunction
+  time_window_minutes: number
+  filters?: AlertFilter[]
+}
+
+export interface AlertMutationExpression {
+  type: 'expression'
+  name: string
+  left_operand: string | number
+  operator: MathOperator
+  right_operand: string | number
+}
+
+export type AlertMutation = AlertMutationAggregation | AlertMutationExpression
 
 export interface PanelDataSource {
   sensor_id: string
@@ -37,6 +67,8 @@ export interface AlertRule {
   operator: ComparisonOperator
   threshold: number | string | boolean
   severity: AlertSeverity
+  filters?: AlertFilter[]
+  mutation_ref?: string
 }
 
 export interface Sensor {
@@ -80,6 +112,7 @@ export interface Alert {
   name: string
   description: string
   rules: AlertRule[]
+  mutations?: AlertMutation[]
   cron_expression: string
   state: AlertState
   priority: number
@@ -246,6 +279,7 @@ export type MonitorType = 'cloudflare_pages'
 export interface CloudflarePagesProjectConfig {
   name: string
   branches: string[]        // empty = all branches
+  environments: string[]    // e.g. ['production', 'preview'], empty = all
   collect_metrics: boolean  // create a separate metrics sensor
 }
 

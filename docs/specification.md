@@ -437,6 +437,7 @@ sequenceDiagram
 | `name` | string | yes | 1–100 chars, unique | — |
 | `description` | string | no | max 500 chars | `""` |
 | `rules` | JSON | yes | array of AlertRule objects (see below) | `[]` |
+| `mutations` | JSON | no | array of AlertMutation objects (see below) | `[]` |
 | `cron_expression` | string | yes | valid cron expression | — |
 | `state` | enum | auto | `ok\|notice\|warning\|error` | `"ok"` |
 | `priority` | integer | yes | 1–100 | — |
@@ -459,6 +460,8 @@ sequenceDiagram
 | `operator` | enum | `>\|>=\|<\|<=\|==\|!=` |
 | `threshold` | number \| string \| boolean | Comparison value (type matches column datatype) |
 | `severity` | enum | `notice\|warning\|error` — severity when rule triggers |
+| `filters` | AlertFilter[] | Optional WHERE conditions applied before aggregation |
+| `mutation_ref` | string | References a mutation name; when set, uses pre-computed mutation value instead of querying sensor |
 
 > **Note:** Sensor relationships are implicit through rule definitions. The `alert_sensor` junction table is no longer used.
 >
@@ -466,7 +469,44 @@ sequenceDiagram
 >
 > **Tag-based evaluation:** When `tag` is set (and `sensor_id` is not), the engine fetches all sensors with that tag, runs the aggregation query per sensor, and triggers if ANY sensor matches. The column dropdown shows the intersection of columns across all tagged sensors.
 
-**Create:** Validate fields → insert into `alert` table with `rules` JSON → register cron job if `enabled=true`.
+**AlertFilter sub-fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `column` | string | Column name to filter on |
+| `operator` | enum | `==\|!=\|>\|<\|>=\|<=` |
+| `value` | string \| number \| boolean | Value to compare against (parameterized, not interpolated) |
+
+**AlertMutation sub-fields:**
+
+Mutations are computed values that rules can reference. Two types:
+
+*Aggregation mutation:*
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | `"aggregation"` | Mutation type discriminator |
+| `name` | string | Unique name within the alert |
+| `sensor_id` | UUID FK | Target sensor (optional if `tag` is set) |
+| `tag` | string | Target tag (optional if `sensor_id` is set) |
+| `column` | string | Column from sensor's `table_definition` |
+| `aggregation` | enum | `avg\|min\|max\|sum\|count\|last` |
+| `time_window_minutes` | integer | Lookback window in minutes |
+| `filters` | AlertFilter[] | Optional WHERE conditions |
+
+*Expression mutation:*
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | `"expression"` | Mutation type discriminator |
+| `name` | string | Unique name within the alert |
+| `left_operand` | string \| number | Mutation name or numeric literal |
+| `operator` | enum | `+\|-\|*\|/` |
+| `right_operand` | string \| number | Mutation name or numeric literal |
+
+> **Evaluation order:** Aggregation mutations are evaluated first (pass 1), then expression mutations (pass 2). Expressions can reference aggregation results but not other expressions. Division by zero returns `null`.
+
+**Create:** Validate fields → insert into `alert` table with `rules` and `mutations` JSON → register cron job if `enabled=true`.
 
 **Read:** List with filters on `state`, `priority`, `acknowledged`, `enabled`. Single alert includes rules and recent history.
 
@@ -661,6 +701,7 @@ Cron tasks are not persisted as their own table — they are derived from sensor
 |-------|------|-------------|
 | `name` | string | Project name (matches CF Pages project) |
 | `branches` | string[] | Branch filter; empty = all branches |
+| `environments` | string[] | Which CF environments to track (e.g. `['production', 'preview']`); default `['production']` |
 | `collect_metrics` | boolean | Create a separate Functions sensor collecting invocations, errors, subrequests, and CPU time via CF GraphQL Analytics API |
 
 **Create:** Validate fields → encrypt `api_token` via Electron `safeStorage` → insert into `monitor` table → register cron job if `enabled=true`.
@@ -671,7 +712,7 @@ Cron tasks are not persisted as their own table — they are derived from sensor
 
 **Delete:** Cancel cron job → cascade delete all managed sensors (sensors where `monitor_id` matches) and their `sensor_data` → delete `monitor` row.
 
-**Run:** Decrypt API token → fetch CF Pages projects → resolve project configs (migrate from `excluded_projects` if `projects` array is empty) → for each configured project: ensure a managed status sensor exists, apply branch filter to deployments, insert latest status data → if `collect_metrics` enabled: ensure a metrics sensor exists, compute build/deploy durations from CF API stages, insert metrics row → auto-generate tags (`cloudflare`, `pages`, `project:{name}`, `branch:{name}`) on all managed sensors → remove sensors for projects no longer configured.
+**Run:** Decrypt API token → fetch CF Pages projects → resolve project configs (migrate from `excluded_projects` if `projects` array is empty; configs without `environments` default to `['production']`) → for each configured project: ensure a managed status sensor exists (with `branch` column), filter deployments by configured environments, record one row per branch (or per environment when no branch filter), insert status data including `branch` field → if `collect_metrics` enabled: ensure a metrics sensor exists, compute build/deploy durations from CF API stages, insert metrics row → auto-generate tags (`cloudflare`, `pages`, `project:{name}`, `branch:{name}`) on all managed sensors → sync `table_definition` on existing sensors → remove sensors for projects no longer configured.
 
 **Test Connection:** Decrypt API token → call CF API → return `{ name, production_branch }[]` for discovered projects without persisting.
 
@@ -1456,12 +1497,17 @@ The app targets desktop Electron windows. Minimum supported size: **1024×768**.
 │        │                                                │
 │        │  [Test Connection]                             │
 │        │                                                │
-│        │  Discovered Projects:                          │
+│        │  Projects:                                     │
 │        │  ┌──────────────────────────────────────────┐  │
-│        │  │ [✓] my-website                           │  │
-│        │  │ [✓] api-docs                             │  │
-│        │  │ [ ] test-playground  (excluded)           │  │
-│        │  │ [✓] dashboard-app                        │  │
+│        │  │ my-website                          [X]  │  │
+│        │  │ Branches: [main                       ]  │  │
+│        │  │ [ ] Collect Functions metrics             │  │
+│        │  │ Environments: [✓] Production [✓] Preview │  │
+│        │  ├──────────────────────────────────────────┤  │
+│        │  │ api-docs                            [X]  │  │
+│        │  │ Branches: [                           ]  │  │
+│        │  │ [ ] Collect Functions metrics             │  │
+│        │  │ Environments: [✓] Production [ ] Preview │  │
 │        │  └──────────────────────────────────────────┘  │
 │        │                                                │
 │        │  Managed Sensors (read-only):                  │

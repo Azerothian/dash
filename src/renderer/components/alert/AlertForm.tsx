@@ -3,7 +3,8 @@ import { ArrowLeft, Save, Loader2, Plus } from 'lucide-react'
 import { useAlert, useCreateAlert, useUpdateAlert } from '../../hooks/useAlerts'
 import { CronInput } from '../shared/CronInput'
 import { RuleRow } from './RuleRow'
-import type { AlertRule } from '@shared/entities'
+import { MutationRow } from './MutationRow'
+import type { AlertRule, AlertMutation } from '@shared/entities'
 
 interface AlertFormProps {
   alertId?: string
@@ -34,6 +35,7 @@ export function AlertForm({ alertId, onClose }: AlertFormProps) {
   const [cronExpression, setCronExpression] = useState('*/1 * * * *')
   const [priority, setPriority] = useState(1)
   const [enabled, setEnabled] = useState(true)
+  const [mutations, setMutations] = useState<AlertMutation[]>([])
 
   useEffect(() => {
     if (alert) {
@@ -43,6 +45,7 @@ export function AlertForm({ alertId, onClose }: AlertFormProps) {
       setCronExpression(alert.cron_expression)
       setPriority(alert.priority)
       setEnabled(alert.enabled)
+      setMutations(alert.mutations || [])
     }
   }, [alert])
 
@@ -51,6 +54,7 @@ export function AlertForm({ alertId, onClose }: AlertFormProps) {
       name,
       description,
       rules,
+      mutations,
       cron_expression: cronExpression,
       priority,
       enabled,
@@ -73,7 +77,8 @@ export function AlertForm({ alertId, onClose }: AlertFormProps) {
     setRules(rules.filter((_, i) => i !== index))
   }
 
-  const hasValidRule = rules.some((r) => (r.sensor_id || r.tag) && r.column)
+  const hasValidRule = rules.some((r) => (r.sensor_id || r.tag || r.mutation_ref) && (r.column || r.mutation_ref))
+  const mutationNames = mutations.map((m) => m.name).filter(Boolean)
   const isPending = createMutation.isPending || updateMutation.isPending
 
   if (alertId && isLoading) {
@@ -149,6 +154,30 @@ export function AlertForm({ alertId, onClose }: AlertFormProps) {
         <CronInput value={cronExpression} onChange={setCronExpression} />
 
         <div className="space-y-2">
+          <label className="block text-sm font-medium">Mutations</label>
+          {mutations.map((mut, i) => (
+            <MutationRow
+              key={i}
+              mutation={mut}
+              onChange={(m) => {
+                const next = [...mutations]
+                next[i] = m
+                setMutations(next)
+              }}
+              onRemove={() => setMutations(mutations.filter((_, idx) => idx !== i))}
+              existingMutationNames={mutations.map((m) => m.name).filter((n, idx) => idx !== i && Boolean(n))}
+            />
+          ))}
+          <button
+            onClick={() => setMutations([...mutations, { type: 'aggregation', name: '', sensor_id: '', column: '', aggregation: 'last', time_window_minutes: 60 }])}
+            className="flex items-center gap-1 rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent"
+          >
+            <Plus className="h-4 w-4" />
+            Add Mutation
+          </button>
+        </div>
+
+        <div className="space-y-2">
           <label className="block text-sm font-medium">Alert Rules</label>
           {rules.map((rule, i) => (
             <RuleRow
@@ -156,6 +185,7 @@ export function AlertForm({ alertId, onClose }: AlertFormProps) {
               rule={rule}
               onChange={(r) => updateRule(i, r)}
               onRemove={() => removeRule(i)}
+              mutationNames={mutationNames}
             />
           ))}
           <button
