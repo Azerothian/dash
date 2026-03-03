@@ -5,6 +5,7 @@ import { join } from 'path'
 import { tmpdir } from 'os'
 import { v4 as uuidv4 } from 'uuid'
 import { JSONPath } from 'jsonpath-plus'
+import { build } from 'esbuild'
 import type { ExecutionType, ColumnDefinition } from '@shared/entities'
 import { SettingsService } from '../settings/settings.service.js'
 
@@ -95,10 +96,7 @@ export class ExecutorService {
   private async executeFile(type: ExecutionType, filePath: string, env: Record<string, string>): Promise<string> {
     switch (type) {
       case 'typescript':
-        return this.runCommand(
-          `npx esbuild "${filePath}" --bundle --platform=node --format=esm | node --input-type=module`,
-          env,
-        )
+        return this.bundleAndRunTypeScript(filePath, env)
       case 'bash':
         if (process.platform === 'win32') {
           const wslDistro = await this.settings.get('wsl_distro')
@@ -114,19 +112,41 @@ export class ExecutorService {
           throw new Error('PowerShell execution is only available on Windows.')
         }
         return this.runCommand(`powershell -ExecutionPolicy Bypass -File "${filePath}"`, env)
-      case 'docker':
-        // For docker, read the file content and use it as the command spec
+      case 'docker': {
         const content = await readFile(filePath, 'utf-8')
         return this.executeDocker(content, env)
+      }
       default:
         throw new Error(`Unsupported execution type: ${type}`)
     }
   }
 
-  private executeTypeScript(script: string, env: Record<string, string>): Promise<string> {
-    return this.runInTempFile(script, 'ts', env, (filePath) => {
-      return `npx esbuild "${filePath}" --bundle --platform=node --format=esm | node --input-type=module`
+  private async executeTypeScript(script: string, env: Record<string, string>): Promise<string> {
+    const filePath = join(tmpdir(), `dash-sensor-${uuidv4()}.ts`)
+    await writeFile(filePath, script, 'utf-8')
+    try {
+      return await this.bundleAndRunTypeScript(filePath, env)
+    } finally {
+      await unlink(filePath).catch(() => {})
+    }
+  }
+
+  private async bundleAndRunTypeScript(entryPoint: string, env: Record<string, string>): Promise<string> {
+    const result = await build({
+      entryPoints: [entryPoint],
+      bundle: true,
+      platform: 'node',
+      format: 'esm',
+      write: false,
     })
+    const bundledCode = result.outputFiles[0].text
+    const tmpJs = join(tmpdir(), `dash-sensor-${uuidv4()}.mjs`)
+    await writeFile(tmpJs, bundledCode, 'utf-8')
+    try {
+      return await this.runCommand(`node "${tmpJs}"`, env)
+    } finally {
+      await unlink(tmpJs).catch(() => {})
+    }
   }
 
   private async executeBash(script: string, env: Record<string, string>): Promise<string> {
