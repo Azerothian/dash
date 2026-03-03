@@ -156,8 +156,9 @@ test.describe('Credentials', () => {
     await page.locator('input[placeholder="Cloudflare API Token"]').fill('ui-test-token')
     await page.locator('input[placeholder="Cloudflare Account ID"]').fill('ui-test-account')
 
-    // Save
-    await page.locator('button', { hasText: 'Save' }).click()
+    // Save - use the Credentials section's save button specifically
+    const credSection = page.locator('section', { hasText: 'Credentials' })
+    await credSection.getByRole('button', { name: 'Save', exact: true }).click()
     await page.waitForTimeout(500)
 
     // Verify it appears in the list
@@ -169,11 +170,15 @@ test.describe('Credentials', () => {
   })
 
   test('edit credential name via settings UI', async () => {
+    // Reload to ensure fresh state
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await page.locator('header').waitFor({ state: 'visible', timeout: 15_000 })
     await goToSettings()
-    await page.waitForTimeout(300)
+    await page.waitForTimeout(500)
 
-    // Click edit on the credential
-    await page.locator('button[title="Edit"]').first().click()
+    // Click edit on the credential within Credentials section
+    const credSection = page.locator('section', { hasText: 'Credentials' })
+    await credSection.locator('button[title="Edit"]').first().click()
     await page.waitForTimeout(300)
 
     // Clear and type new name
@@ -181,8 +186,8 @@ test.describe('Credentials', () => {
     await nameInput.clear()
     await nameInput.fill('Renamed Credential')
 
-    // Save
-    await page.locator('button', { hasText: 'Save' }).click()
+    // Save within credential section
+    await credSection.getByRole('button', { name: 'Save', exact: true }).click()
     await page.waitForTimeout(500)
 
     // Verify
@@ -190,11 +195,15 @@ test.describe('Credentials', () => {
   })
 
   test('delete credential via settings UI', async () => {
+    // Reload to ensure fresh state
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await page.locator('header').waitFor({ state: 'visible', timeout: 15_000 })
     await goToSettings()
-    await page.waitForTimeout(300)
+    await page.waitForTimeout(500)
 
-    // Click delete
-    await page.locator('button[title="Delete"]').first().click()
+    // Click delete within Credentials section
+    const credSection = page.locator('section', { hasText: 'Credentials' })
+    await credSection.locator('button[title="Delete"]').first().click()
     await page.waitForTimeout(500)
 
     // Verify removed
