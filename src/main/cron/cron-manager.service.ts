@@ -1,12 +1,14 @@
 import { Injectable, OnModuleInit, Inject } from '@nestjs/common'
 import * as schedule from 'node-schedule'
+import { v4 as uuidv4 } from 'uuid'
 import { SensorService } from '../sensor/sensor.service.js'
 import { ExecutorService } from '../sensor/executor.service.js'
 import { AlertService } from '../alert/alert.service.js'
 import { NotificationService } from '../notification/notification.service.js'
+import { DatabaseService } from '../database/database.service.js'
 import { BrowserWindow } from 'electron'
 import { IPC_CHANNELS } from '@shared/ipc-channels'
-import type { CronTask, CronTaskType } from '@shared/entities'
+import type { CronTask, CronTaskType, CronExecutionLog } from '@shared/entities'
 
 interface RegisteredTask {
   id: string
@@ -18,6 +20,8 @@ interface RegisteredTask {
   running: boolean
   lastRun: string | null
   enabled: boolean
+  failureCount: number
+  lastError: string | null
 }
 
 @Injectable()
@@ -29,6 +33,7 @@ export class CronManagerService implements OnModuleInit {
     @Inject(ExecutorService) private executor: ExecutorService,
     @Inject(AlertService) private alerts: AlertService,
     @Inject(NotificationService) private notifications: NotificationService,
+    @Inject(DatabaseService) private db: DatabaseService,
   ) {}
 
   async onModuleInit() {
@@ -114,6 +119,8 @@ export class CronManagerService implements OnModuleInit {
       job: null,
       running: false,
       lastRun: existing?.lastRun || null,
+      failureCount: existing?.failureCount ?? 0,
+      lastError: existing?.lastError ?? null,
     }
 
     if (opts.enabled) {
@@ -134,6 +141,10 @@ export class CronManagerService implements OnModuleInit {
     task.running = true
     this.broadcastStatus()
 
+    const start = Date.now()
+    let status: 'success' | 'error' = 'success'
+    let errorMessage: string | null = null
+
     try {
       switch (task.type) {
         case 'sensor':
@@ -150,12 +161,18 @@ export class CronManagerService implements OnModuleInit {
           await this.runNotification(task.entityId)
           break
       }
-      task.lastRun = new Date().toISOString()
-    } catch {
-      // Errors are logged but don't crash the cron
+      task.lastError = null
+    } catch (err) {
+      status = 'error'
+      errorMessage = err instanceof Error ? err.message : String(err)
+      task.failureCount++
+      task.lastError = errorMessage
     } finally {
+      task.lastRun = new Date().toISOString()
+      const durationMs = Date.now() - start
       task.running = false
       this.broadcastStatus()
+      this.recordExecution(taskId, task.type, status, errorMessage, durationMs).catch(() => {})
     }
   }
 
@@ -165,8 +182,12 @@ export class CronManagerService implements OnModuleInit {
     const result = await this.executor.execute(
       sensor.execution_type, sensor.script_content,
       sensor.table_definition, sensor.env_vars,
+      sensor.script_source, sensor.script_file_path,
     )
-    if (result.success && result.data) {
+    if (!result.success) {
+      throw new Error(result.error || 'Sensor execution failed')
+    }
+    if (result.data) {
       await this.sensors.insertData(sensorId, result.data)
       this.broadcast(IPC_CHANNELS.SENSOR_DATA_UPDATED, sensorId)
     }
@@ -187,6 +208,7 @@ export class CronManagerService implements OnModuleInit {
     for (const sensor of sensors) {
       await this.sensors.applyRetention(sensor.id)
     }
+    await this.cleanupExecutionLogs().catch(() => {})
   }
 
   async forceRun(taskId: string): Promise<void> {
@@ -221,6 +243,8 @@ export class CronManagerService implements OnModuleInit {
       running: t.running,
       last_run: t.lastRun,
       enabled: t.enabled,
+      failure_count: t.failureCount,
+      last_error: t.lastError,
     }))
   }
 
@@ -292,6 +316,47 @@ export class CronManagerService implements OnModuleInit {
     const existing = this.tasks.get(taskId)
     if (existing?.job) existing.job.cancel()
     this.tasks.delete(taskId)
+  }
+
+  private async recordExecution(
+    taskId: string,
+    entityType: CronTaskType,
+    status: 'success' | 'error',
+    errorMessage: string | null,
+    durationMs: number,
+  ): Promise<void> {
+    await this.db.run(
+      `INSERT INTO cron_execution_log (id, task_id, entity_type, status, error_message, duration_ms, executed_at)
+       VALUES (?, ?, ?, ?, ?, ?, current_timestamp)`,
+      uuidv4(), taskId, entityType, status, errorMessage, durationMs,
+    )
+  }
+
+  async getExecutionLog(taskId: string, limit = 50, offset = 0): Promise<CronExecutionLog[]> {
+    return this.db.all<CronExecutionLog>(
+      `SELECT id, task_id, entity_type, status, error_message, duration_ms, executed_at
+       FROM cron_execution_log
+       WHERE task_id = ?
+       ORDER BY executed_at DESC
+       LIMIT ? OFFSET ?`,
+      taskId, limit, offset,
+    )
+  }
+
+  private async cleanupExecutionLogs(): Promise<void> {
+    // Delete logs older than 30 days
+    await this.db.run(
+      `DELETE FROM cron_execution_log WHERE executed_at < current_timestamp - INTERVAL 30 DAY`,
+    )
+    // Keep max 1000 per task
+    await this.db.run(
+      `DELETE FROM cron_execution_log WHERE id IN (
+        SELECT id FROM (
+          SELECT id, ROW_NUMBER() OVER (PARTITION BY task_id ORDER BY executed_at DESC) as rn
+          FROM cron_execution_log
+        ) WHERE rn > 1000
+      )`,
+    )
   }
 
   private broadcast(channel: string, ...args: unknown[]) {

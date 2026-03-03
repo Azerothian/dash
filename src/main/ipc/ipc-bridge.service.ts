@@ -1,5 +1,5 @@
 import { Injectable, OnModuleInit, Inject } from '@nestjs/common'
-import { ipcMain, BrowserWindow } from 'electron'
+import { ipcMain, BrowserWindow, dialog } from 'electron'
 import { IPC_CHANNELS } from '@shared/ipc-channels'
 import { SettingsService } from '../settings/settings.service.js'
 import { SensorService } from '../sensor/sensor.service.js'
@@ -29,6 +29,7 @@ export class IpcBridgeService implements OnModuleInit {
     this.registerDashboardHandlers()
     this.registerNotificationHandlers()
     this.registerCronHandlers()
+    this.registerDialogHandlers()
   }
 
   private registerSettingsHandlers() {
@@ -65,7 +66,7 @@ export class IpcBridgeService implements OnModuleInit {
     ipcMain.handle(IPC_CHANNELS.SENSOR_RUN, async (_event, id: string) => {
       const sensor = await this.sensors.get(id)
       if (!sensor) throw new Error(`Sensor ${id} not found`)
-      const result = await this.executor.execute(sensor.execution_type, sensor.script_content, sensor.table_definition, sensor.env_vars)
+      const result = await this.executor.execute(sensor.execution_type, sensor.script_content, sensor.table_definition, sensor.env_vars, sensor.script_source, sensor.script_file_path)
       if (result.success && result.data) {
         await this.sensors.insertData(id, result.data)
         this.broadcast(IPC_CHANNELS.SENSOR_DATA_UPDATED, id)
@@ -151,6 +152,9 @@ export class IpcBridgeService implements OnModuleInit {
       await this.cron.toggleTask(taskId, enabled)
       return { success: true }
     })
+    ipcMain.handle(IPC_CHANNELS.CRON_EXECUTION_LOG, async (_event, taskId: string, limit?: number, offset?: number) => {
+      return this.cron.getExecutionLog(taskId, limit ?? 50, offset ?? 0)
+    })
   }
 
   private registerNotificationHandlers() {
@@ -176,6 +180,18 @@ export class IpcBridgeService implements OnModuleInit {
     })
     ipcMain.handle(IPC_CHANNELS.NOTIFICATION_HISTORY_LIST, async (_event, notificationId: string, limit?: number, offset?: number) => {
       return this.notifications.getHistory(notificationId, limit, offset)
+    })
+  }
+
+  private registerDialogHandlers() {
+    ipcMain.handle(IPC_CHANNELS.DIALOG_OPEN_FILE, async (_event, options?: { filters?: Electron.FileFilter[] }) => {
+      const win = BrowserWindow.getFocusedWindow()
+      if (!win) return null
+      const result = await dialog.showOpenDialog(win, {
+        properties: ['openFile'],
+        filters: options?.filters ?? [],
+      })
+      return result.canceled ? null : result.filePaths[0]
     })
   }
 

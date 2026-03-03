@@ -38,12 +38,16 @@ export interface AlertRule {
   severity: AlertSeverity
 }
 
+export type ScriptSource = 'inline' | 'file'
+
 export interface Sensor {
   id: string
   name: string
   description: string
   execution_type: ExecutionType
+  script_source: ScriptSource
   script_content: string
+  script_file_path: string
   table_definition: ColumnDefinition[]
   retention_rules: RetentionRules
   cron_expression: string
@@ -199,6 +203,18 @@ export interface CronTask {
   running: boolean
   last_run: string | null
   enabled: boolean
+  failure_count: number
+  last_error: string | null
+}
+
+export interface CronExecutionLog {
+  id: string
+  task_id: string
+  entity_type: CronTaskType
+  status: 'success' | 'error'
+  error_message: string | null
+  duration_ms: number
+  executed_at: string
 }
 
 // Create/Update DTOs

@@ -52,6 +52,7 @@ export const IPC_CHANNELS = {
   CRON_FORCE_RUN: 'cron:force-run',
   CRON_TOGGLE: 'cron:toggle',
   CRON_TASK_STATUS: 'cron:task-status',
+  CRON_EXECUTION_LOG: 'cron:execution-log',
 
   // Settings channels
   SETTINGS_GET: 'settings:get',
@@ -61,6 +62,9 @@ export const IPC_CHANNELS = {
   // Sensor data channels
   SENSOR_DATA_LIST: 'sensor-data:list',
   SENSOR_DATA_AGGREGATED: 'sensor-data:aggregated',
+
+  // Dialog channels
+  DIALOG_OPEN_FILE: 'dialog:open-file',
 } as const
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS]

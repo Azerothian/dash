@@ -1,6 +1,6 @@
 import { Injectable, Inject } from '@nestjs/common'
 import { exec } from 'child_process'
-import { writeFile, unlink } from 'fs/promises'
+import { writeFile, readFile, unlink } from 'fs/promises'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { v4 as uuidv4 } from 'uuid'
@@ -24,6 +24,8 @@ export class ExecutorService {
     script: string,
     columns: ColumnDefinition[],
     envVars: Record<string, string>,
+    scriptSource: 'inline' | 'file' = 'inline',
+    scriptFilePath?: string,
   ): Promise<ExecutionResult> {
     const start = Date.now()
     try {
@@ -32,21 +34,25 @@ export class ExecutorService {
       const mergedEnv = { ...globalVars, ...envVars }
 
       let rawOutput: string
-      switch (type) {
-        case 'typescript':
-          rawOutput = await this.executeTypeScript(script, mergedEnv)
-          break
-        case 'bash':
-          rawOutput = await this.executeBash(script, mergedEnv)
-          break
-        case 'docker':
-          rawOutput = await this.executeDocker(script, mergedEnv)
-          break
-        case 'powershell':
-          rawOutput = await this.executePowerShell(script, mergedEnv)
-          break
-        default:
-          throw new Error(`Unsupported execution type: ${type}`)
+      if (scriptSource === 'file' && scriptFilePath) {
+        rawOutput = await this.executeFile(type, scriptFilePath, mergedEnv)
+      } else {
+        switch (type) {
+          case 'typescript':
+            rawOutput = await this.executeTypeScript(script, mergedEnv)
+            break
+          case 'bash':
+            rawOutput = await this.executeBash(script, mergedEnv)
+            break
+          case 'docker':
+            rawOutput = await this.executeDocker(script, mergedEnv)
+            break
+          case 'powershell':
+            rawOutput = await this.executePowerShell(script, mergedEnv)
+            break
+          default:
+            throw new Error(`Unsupported execution type: ${type}`)
+        }
       }
 
       const parsed = JSON.parse(rawOutput.trim())
@@ -62,6 +68,16 @@ export class ExecutorService {
         }
       }
 
+      // Fail if no column collected a value
+      const hasValue = Object.values(data).some((v) => v !== undefined && v !== null)
+      if (columns.length > 0 && !hasValue) {
+        return {
+          success: false,
+          error: 'No values collected: all column selectors resolved to null/undefined',
+          duration: Date.now() - start,
+        }
+      }
+
       return {
         success: true,
         data,
@@ -73,6 +89,37 @@ export class ExecutorService {
         error: error instanceof Error ? error.message : String(error),
         duration: Date.now() - start,
       }
+    }
+  }
+
+  private async executeFile(type: ExecutionType, filePath: string, env: Record<string, string>): Promise<string> {
+    switch (type) {
+      case 'typescript':
+        return this.runCommand(
+          `npx esbuild "${filePath}" --bundle --platform=node --format=esm | node --input-type=module`,
+          env,
+        )
+      case 'bash':
+        if (process.platform === 'win32') {
+          const wslDistro = await this.settings.get('wsl_distro')
+          if (!wslDistro) {
+            throw new Error('WSL not configured. Set WSL distribution in Settings to use bash sensors on Windows.')
+          }
+          const wslPath = filePath.replace(/\\/g, '/').replace(/^([A-Z]):/, '/mnt/$1'.toLowerCase())
+          return this.runCommand(`wsl -d ${wslDistro} bash "${wslPath}"`, env)
+        }
+        return this.runCommand(`bash "${filePath}"`, env)
+      case 'powershell':
+        if (process.platform !== 'win32') {
+          throw new Error('PowerShell execution is only available on Windows.')
+        }
+        return this.runCommand(`powershell -ExecutionPolicy Bypass -File "${filePath}"`, env)
+      case 'docker':
+        // For docker, read the file content and use it as the command spec
+        const content = await readFile(filePath, 'utf-8')
+        return this.executeDocker(content, env)
+      default:
+        throw new Error(`Unsupported execution type: ${type}`)
     }
   }
 

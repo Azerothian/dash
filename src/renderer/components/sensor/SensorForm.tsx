@@ -3,7 +3,8 @@ import { ArrowLeft, Save, Loader2 } from 'lucide-react'
 import { useSensor, useCreateSensor, useUpdateSensor } from '../../hooks/useSensors'
 import { CronInput } from '../shared/CronInput'
 import { EnvVarEditor } from '../shared/EnvVarEditor'
-import type { ExecutionType, ColumnDefinition } from '@shared/entities'
+import { SelectorTester } from './SelectorTester'
+import type { ExecutionType, ScriptSource, ColumnDefinition } from '@shared/entities'
 
 interface SensorFormProps {
   sensorId?: string
@@ -25,7 +26,9 @@ export function SensorForm({ sensorId, onClose }: SensorFormProps) {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [executionType, setExecutionType] = useState<ExecutionType>('typescript')
+  const [scriptSource, setScriptSource] = useState<ScriptSource>('inline')
   const [scriptContent, setScriptContent] = useState('')
+  const [scriptFilePath, setScriptFilePath] = useState('')
   const [tableDefinition, setTableDefinition] = useState<ColumnDefinition[]>([
     { name: 'value', type: 'DOUBLE' },
   ])
@@ -40,7 +43,9 @@ export function SensorForm({ sensorId, onClose }: SensorFormProps) {
       setName(sensor.name)
       setDescription(sensor.description)
       setExecutionType(sensor.execution_type)
+      setScriptSource(sensor.script_source || 'inline')
       setScriptContent(sensor.script_content)
+      setScriptFilePath(sensor.script_file_path || '')
       setTableDefinition(sensor.table_definition)
       setCronExpression(sensor.cron_expression)
       setEnvVars(sensor.env_vars)
@@ -55,7 +60,9 @@ export function SensorForm({ sensorId, onClose }: SensorFormProps) {
       name,
       description,
       execution_type: executionType,
+      script_source: scriptSource,
       script_content: scriptContent,
+      script_file_path: scriptFilePath,
       table_definition: tableDefinition,
       retention_rules: {
         ...(maxAgeDays ? { max_age_days: Number(maxAgeDays) } : {}),
@@ -104,7 +111,7 @@ export function SensorForm({ sensorId, onClose }: SensorFormProps) {
         </div>
         <button
           onClick={handleSubmit}
-          disabled={isPending || !name || !scriptContent}
+          disabled={isPending || !name || (scriptSource === 'inline' ? !scriptContent : !scriptFilePath)}
           className="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
         >
           {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
@@ -153,20 +160,76 @@ export function SensorForm({ sensorId, onClose }: SensorFormProps) {
         <CronInput value={cronExpression} onChange={setCronExpression} />
 
         <div>
-          <label className="block text-sm font-medium mb-1">Script</label>
-          <textarea
-            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono min-h-[200px]"
-            value={scriptContent}
-            onChange={(e) => setScriptContent(e.target.value)}
-            placeholder={
-              executionType === 'typescript'
-                ? 'export default async function() {\n  return { value: 42 };\n}'
-                : '#!/bin/bash\necho \'{"value": 42}\''
-            }
-          />
+          <label className="block text-sm font-medium mb-1">Script Source</label>
+          <div className="flex gap-4 mb-2">
+            <label className="flex items-center gap-1.5 cursor-pointer">
+              <input
+                type="radio"
+                name="scriptSource"
+                value="inline"
+                checked={scriptSource === 'inline'}
+                onChange={() => setScriptSource('inline')}
+                className="rounded"
+              />
+              <span className="text-sm">Inline Script</span>
+            </label>
+            <label className="flex items-center gap-1.5 cursor-pointer">
+              <input
+                type="radio"
+                name="scriptSource"
+                value="file"
+                checked={scriptSource === 'file'}
+                onChange={() => setScriptSource('file')}
+                className="rounded"
+              />
+              <span className="text-sm">File</span>
+            </label>
+          </div>
+          {scriptSource === 'inline' ? (
+            <textarea
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono min-h-[200px]"
+              value={scriptContent}
+              onChange={(e) => setScriptContent(e.target.value)}
+              placeholder={
+                executionType === 'typescript'
+                  ? 'export default async function() {\n  return { value: 42 };\n}'
+                  : '#!/bin/bash\necho \'{"value": 42}\''
+              }
+            />
+          ) : (
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm font-mono"
+                value={scriptFilePath}
+                onChange={(e) => setScriptFilePath(e.target.value)}
+                placeholder="/path/to/script.ts"
+                readOnly
+              />
+              <button
+                type="button"
+                onClick={async () => {
+                  const filterMap: Record<string, Electron.FileFilter[]> = {
+                    typescript: [{ name: 'TypeScript', extensions: ['ts', 'mts'] }],
+                    bash: [{ name: 'Shell Scripts', extensions: ['sh', 'bash'] }],
+                    powershell: [{ name: 'PowerShell', extensions: ['ps1'] }],
+                    docker: [{ name: 'All Files', extensions: ['*'] }],
+                  }
+                  const filters = filterMap[executionType] ?? []
+                  const result = await window.api.invoke('dialog:open-file', { filters })
+                  if (result) setScriptFilePath(result)
+                }}
+                className="rounded-md bg-secondary px-3 py-2 text-sm hover:bg-secondary/80"
+              >
+                Browse
+              </button>
+            </div>
+          )}
         </div>
 
         <TableDefinitionEditor value={tableDefinition} onChange={setTableDefinition} />
+
+        <SelectorTester columns={tableDefinition} />
 
         <div className="grid grid-cols-2 gap-4">
           <div>

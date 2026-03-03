@@ -51,6 +51,16 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     })
   }
 
+  private async migrateSensorScriptSource(): Promise<void> {
+    try {
+      await this.all("SELECT script_source FROM sensor LIMIT 1")
+    } catch {
+      // Column doesn't exist — add it
+      await this.run("ALTER TABLE sensor ADD COLUMN script_source VARCHAR DEFAULT 'inline'")
+      await this.run("ALTER TABLE sensor ADD COLUMN script_file_path VARCHAR DEFAULT ''")
+    }
+  }
+
   private async migrateAlertSchema(): Promise<void> {
     try {
       // Check if old schema exists by looking for 'queries' column
@@ -96,6 +106,8 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         description VARCHAR DEFAULT '',
         execution_type VARCHAR NOT NULL,
         script_content TEXT NOT NULL,
+        script_source VARCHAR DEFAULT 'inline',
+        script_file_path VARCHAR DEFAULT '',
         json_selector VARCHAR DEFAULT '$',
         table_definition JSON NOT NULL,
         retention_rules JSON DEFAULT '{}',
@@ -138,6 +150,9 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
 
     // Migrate from old schema if needed
     await this.migrateAlertSchema()
+
+    // Add script_source and script_file_path columns if missing
+    await this.migrateSensorScriptSource()
 
     // Drop legacy alert_sensor table
     await this.run('DROP TABLE IF EXISTS alert_sensor')
@@ -226,6 +241,19 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         panel_id VARCHAR NOT NULL,
         alert_id VARCHAR NOT NULL,
         PRIMARY KEY (panel_id, alert_id)
+      )
+    `)
+
+    // Cron execution log
+    await this.run(`
+      CREATE TABLE IF NOT EXISTS cron_execution_log (
+        id VARCHAR PRIMARY KEY,
+        task_id VARCHAR NOT NULL,
+        entity_type VARCHAR NOT NULL,
+        status VARCHAR NOT NULL,
+        error_message TEXT,
+        duration_ms INTEGER NOT NULL,
+        executed_at TIMESTAMP DEFAULT current_timestamp
       )
     `)
 
