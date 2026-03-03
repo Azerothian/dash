@@ -40,6 +40,7 @@ graph TB
         NM[Notification Manager]
         CM[Cron Manager]
         DM[Dashboard Manager]
+        MM[Monitor Manager]
         TP[teen_process Executor]
     end
 
@@ -54,6 +55,7 @@ graph TB
     IPC --> NM
     IPC --> CM
     IPC --> DM
+    IPC --> MM
     SM --> TP
     SM --> DB
     AM --> DB
@@ -62,6 +64,7 @@ graph TB
     CM -->|node-schedule| SM
     CM -->|node-schedule| AM
     CM -->|node-schedule| NM
+    CM -->|node-schedule| MM
 ```
 
 ### 1.2 Process Model
@@ -87,6 +90,7 @@ erDiagram
         string cron_expression
         json env_vars
         boolean enabled
+        string monitor_id FK "nullable - null means user-created"
         timestamp created_at
         timestamp updated_at
     }
@@ -184,6 +188,19 @@ erDiagram
         timestamp updated_at
     }
 
+    MONITOR {
+        string id PK
+        string name
+        string description
+        string monitor_type "cloudflare_pages"
+        json config "api_token, account_id, excluded_projects"
+        string cron_expression
+        boolean enabled
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    MONITOR ||--o{ SENSOR : "manages"
     SENSOR ||--o{ SENSOR_DATA : "produces"
     SENSOR ||--o{ ALERT : "referenced by rules"
     ALERT ||--o{ ALERT_HISTORY : "logs"
@@ -355,6 +372,19 @@ sequenceDiagram
 | ST-06 | As a user, I want to configure SMTP settings globally so that email notifications can reference them. | Global SMTP config with host, port, auth, TLS, from address. |
 | ST-07 | As a user, I want to configure minimize/system tray behavior so that the app stays accessible. | Options: minimize to tray, show tray icon, close to tray. |
 | ST-08 | As a user, I want to set global environment variables so that all sensors inherit common config. | Key-value editor; global vars merged with sensor-specific vars (sensor wins on conflict). |
+
+### 3.8 Monitors (8 stories)
+
+| ID | Story | Acceptance Criteria |
+|----|-------|-------------------|
+| MO-01 | As a user, I want to create a Cloudflare Pages monitor with API token and account ID so that I can track deployments. | Monitor form accepts token (password field), account ID, cron expression; saved with encrypted token via safeStorage. |
+| MO-02 | As a user, I want to test connection and see discovered projects so that I can verify my credentials work. | "Test Connection" button calls CF API, shows project list with checkboxes. |
+| MO-03 | As a user, I want to exclude specific projects from monitoring so that I only track what matters. | Unchecked projects stored in `excluded_projects[]`; excluded sensors not created. |
+| MO-04 | As a user, I want to see managed sensors auto-created by a monitor so that I know what is being tracked. | After monitor runs, managed sensors appear in sensor list with "Managed" badge. |
+| MO-05 | As a user, I want to run a monitor manually so that I can trigger immediate synchronization. | "Run Now" button fetches latest CF data and syncs managed sensors. |
+| MO-06 | As a user, I want to see deployment history in managed sensor data so that I can track changes over time. | Each cron tick inserts a new sensor_data row with deployment info. |
+| MO-07 | As a user, I want clicking edit on a managed sensor to go to the monitor config so that I edit the source of truth. | Edit redirects to `/monitors/{monitor_id}` instead of sensor form. |
+| MO-08 | As a user, I want deleting a monitor to remove all managed sensors so that cleanup is automatic. | Cascade delete removes managed sensors and their data. |
 
 ---
 
@@ -555,7 +585,7 @@ Cron tasks are not persisted as their own table — they are derived from sensor
 | Field | Type | Description |
 |-------|------|-------------|
 | `id` | string | Source entity ID |
-| `type` | enum | `sensor\|alert\|notification` |
+| `type` | enum | `sensor\|alert\|notification\|monitor` |
 | `cron_expression` | string | Schedule |
 | `job` | ScheduledJob | node-schedule reference |
 | `running` | boolean | Whether currently executing |
@@ -583,6 +613,44 @@ Cron tasks are not persisted as their own table — they are derived from sensor
 | `close_to_tray` | boolean | Close button minimizes to tray | `false` |
 
 **CRUD:** Key-value store pattern — `get(key)`, `set(key, value)`, `getAll()`. No delete (keys have defaults).
+
+---
+
+### 4.9 Monitor
+
+**Fields:**
+
+| Field | Type | Required | Validation | Default |
+|-------|------|----------|------------|---------|
+| `id` | UUID | auto | — | `uuidv4()` |
+| `name` | string | yes | 1–100 chars, unique | — |
+| `description` | string | no | max 500 chars | `""` |
+| `monitor_type` | enum | yes | `cloudflare_pages` | — |
+| `config` | JSON | yes | type-specific schema (see below) | — |
+| `cron_expression` | string | yes | valid cron expression (5 or 6 fields) | — |
+| `enabled` | boolean | yes | — | `true` |
+| `created_at` | timestamp | auto | — | `now()` |
+| `updated_at` | timestamp | auto | — | `now()` |
+
+**Config schema by monitor type:**
+
+- **Cloudflare Pages:** `{ api_token: string (encrypted via safeStorage), account_id: string, excluded_projects: string[] }`
+
+**Create:** Validate fields → encrypt `api_token` via Electron `safeStorage` → insert into `monitor` table → register cron job if `enabled=true`.
+
+**Read:** List all monitors (with optional filters on `monitor_type`, `enabled`). Get single monitor by ID with managed sensor count.
+
+**Update:** Validate changed fields → if `api_token` changed, re-encrypt → update `monitor` row → reschedule cron if expression changed → update `updated_at`.
+
+**Delete:** Cancel cron job → cascade delete all managed sensors (sensors where `monitor_id` matches) and their `sensor_data` → delete `monitor` row.
+
+**Run:** Decrypt API token → fetch external data (e.g., CF Pages projects) → filter excluded projects → for each project, ensure a managed sensor exists → fetch latest data → insert `sensor_data` rows → remove sensors for deleted projects.
+
+**Test Connection:** Decrypt API token → call external API → return list of discovered resources (e.g., CF Pages projects) without persisting.
+
+**Cascade:** Deleting a monitor removes all its managed sensors and their data.
+
+> **Note:** Sensors gain a nullable `monitor_id` FK. When `null`, the sensor is user-created. When set, the sensor is managed by the referenced monitor and its edit action redirects to the monitor form.
 
 ---
 
@@ -720,6 +788,7 @@ graph LR
         R5["panel:create / :update / :delete / :reorder"]
         R6["cron:list / :force-run / :toggle"]
         R7["settings:get / :set / :get-all"]
+        R8["monitor:list / :get / :create / :update / :delete / :run / :test-connection"]
     end
 
     subgraph Main to Renderer
@@ -828,6 +897,27 @@ flowchart LR
     M --> N[Publish auto-update feed]
 ```
 
+### 5.12 Monitor Execution Flow
+
+```mermaid
+flowchart TD
+    A[Cron Trigger] --> B{Task already running?}
+    B -->|Yes| C[Skip & Log]
+    B -->|No| D[Set running = true]
+    D --> E[Decrypt API token via safeStorage]
+    E --> F[Fetch external data - e.g. CF Pages projects]
+    F --> G[Filter excluded projects]
+    G --> H[For each project]
+    H --> I[Ensure managed sensor exists]
+    I --> J[Fetch latest deployment data]
+    J --> K[Insert sensor_data row]
+    K --> H
+    H -->|All done| L[Remove sensors for deleted projects]
+    L --> M[Emit IPC: monitor:sync-complete]
+    M --> N[Set running = false]
+    C --> N
+```
+
 ---
 
 ## 6. UX/Usability Design
@@ -878,6 +968,9 @@ App
 ├── Sensors
 │   ├── Sensor List
 │   └── Sensor Form (create/edit)
+├── Monitors
+│   ├── Monitor List
+│   └── Monitor Form (create/edit with test connection)
 ├── Alerts
 │   ├── Alert List (filterable by state, priority)
 │   ├── Alert Form (create/edit)
@@ -1301,6 +1394,68 @@ The app targets desktop Electron windows. Minimum supported size: **1024×768**.
 └────────┴────────────────────────────────────────────────┘
 ```
 
+### 7.13 Monitor List
+
+```
+┌────────┬────────────────────────────────────────────────┐
+│Sidebar │  Monitors                      [+ New Monitor] │
+│        ├────────────────────────────────────────────────┤
+│        │ ┌──────────────────────────────────────────┐   │
+│        │ │ Name           Type        Cron   Status  │   │
+│        │ ├──────────────────────────────────────────┤   │
+│        │ │ CF Production  CF Pages    0 * * * ● On  │   │
+│        │ │ CF Staging     CF Pages    0 * * * ● On  │   │
+│        │ │ ...                                      │   │
+│        │ └──────────────────────────────────────────┘   │
+│        │                                                │
+│        │  No monitors configured yet. Create one to     │
+│        │  auto-discover and track external services.     │
+│        │                                                │
+└────────┴────────────────────────────────────────────────┘
+  Actions per row: Run Now, Edit, Delete
+  Empty state message shown when no monitors exist
+```
+
+### 7.14 Monitor Form (Create/Edit)
+
+```
+┌────────┬────────────────────────────────────────────────┐
+│Sidebar │  Monitor: CF Production                 [Save] │
+│        ├────────────────────────────────────────────────┤
+│        │                                                │
+│        │  Name: [CF Production                     ]    │
+│        │  Description: [Track CF Pages deployments ]    │
+│        │                                                │
+│        │  Type: [ Cloudflare Pages   ▼]                 │
+│        │  Cron Expression: [0 * * * *    ] (every hour) │
+│        │                                                │
+│        │  Connection Settings                           │
+│        │  ───────────────────                           │
+│        │  API Token: [••••••••••••••••••••••••]          │
+│        │  Account ID: [abc123def456             ]       │
+│        │                                                │
+│        │  [Test Connection]                             │
+│        │                                                │
+│        │  Discovered Projects:                          │
+│        │  ┌──────────────────────────────────────────┐  │
+│        │  │ [✓] my-website                           │  │
+│        │  │ [✓] api-docs                             │  │
+│        │  │ [ ] test-playground  (excluded)           │  │
+│        │  │ [✓] dashboard-app                        │  │
+│        │  └──────────────────────────────────────────┘  │
+│        │                                                │
+│        │  Managed Sensors (read-only):                  │
+│        │  ┌──────────────────────────────────────────┐  │
+│        │  │ my-website          Last: 2026-03-03 10:00│  │
+│        │  │ api-docs            Last: 2026-03-03 10:00│  │
+│        │  │ dashboard-app       Last: 2026-03-03 10:00│  │
+│        │  └──────────────────────────────────────────┘  │
+│        │                                                │
+│        │  [Cancel]                            [Save]    │
+└────────┴────────────────────────────────────────────────┘
+  Managed sensors section only visible when editing existing monitor
+```
+
 ---
 
 ## 8. E2E Testing Strategy
@@ -1325,6 +1480,8 @@ tests/
 │   ├── notification-list.page.ts
 │   ├── notification-form.page.ts
 │   ├── cron-list.page.ts
+│   ├── monitor-list.page.ts
+│   ├── monitor-form.page.ts
 │   └── settings.page.ts
 ├── suites/
 │   ├── dashboard.spec.ts
@@ -1332,6 +1489,7 @@ tests/
 │   ├── alert.spec.ts
 │   ├── notification.spec.ts
 │   ├── cron.spec.ts
+│   ├── monitor.spec.ts
 │   └── settings.spec.ts
 └── helpers/
     ├── db.helper.ts            # DuckDB seed/reset
@@ -1410,6 +1568,19 @@ tests/
 | global SMTP test | Enter SMTP config; click test; verify connection attempt. |
 | global env vars | Add env var; create sensor; verify var available in sensor execution. |
 | tray settings | Enable minimize to tray; close window; verify app still running. |
+
+#### Monitor Suite
+
+| Test | Description |
+|------|------------|
+| monitors page shows empty state | Navigate to Monitors; verify empty state message displayed. |
+| creates monitor via IPC | Create monitor with CF Pages config; verify appears in list. |
+| monitor shows type badge | Verify "Cloudflare Pages" badge visible on monitor row. |
+| edit monitor via UI | Click edit; verify form loads with existing data. |
+| delete monitor dismiss keeps monitor | Cancel delete dialog; monitor still present in list. |
+| delete monitor removes managed sensors | Confirm delete; monitor and managed sensors removed. |
+| managed sensor shows badge | Sensor with monitor_id shows "Managed" badge in sensor list. |
+| managed sensor edit redirects | Click edit on managed sensor; navigates to monitor page. |
 
 ### 8.4 Platform Matrix
 
