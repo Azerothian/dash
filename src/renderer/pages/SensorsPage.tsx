@@ -144,6 +144,8 @@ function SensorRow({
     docker: 'Docker',
     powershell: 'PS',
     file: 'File',
+    cfp_build: 'CF Build',
+    cfp_func_metrics: 'CF Metrics',
   }
 
   return (

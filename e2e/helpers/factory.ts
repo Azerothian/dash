@@ -83,6 +83,7 @@ export function makeMonitor(overrides: Record<string, unknown> = {}) {
       api_token: 'test-token-encrypted',
       account_id: 'test-account-id',
       excluded_projects: [],
+      projects: [],
     },
     cron_expression: '*/5 * * * *',
     enabled: true,

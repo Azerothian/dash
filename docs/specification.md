@@ -194,7 +194,7 @@ erDiagram
         string name
         string description
         string monitor_type "cloudflare_pages"
-        json config "api_token, account_id, excluded_projects"
+        json config "api_token, account_id, excluded_projects, projects[]"
         string cron_expression
         boolean enabled
         timestamp created_at
@@ -645,7 +645,23 @@ Cron tasks are not persisted as their own table — they are derived from sensor
 
 **Config schema by monitor type:**
 
-- **Cloudflare Pages:** `{ api_token: string (encrypted via safeStorage), account_id: string, excluded_projects: string[] }`
+- **Cloudflare Pages:**
+  ```
+  {
+    api_token: string (encrypted via safeStorage),
+    account_id: string,
+    excluded_projects: string[],       // legacy, kept for migration
+    projects: CloudflarePagesProjectConfig[]
+  }
+  ```
+
+**`CloudflarePagesProjectConfig`:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Project name (matches CF Pages project) |
+| `branches` | string[] | Branch filter; empty = all branches |
+| `collect_metrics` | boolean | Create a separate Functions sensor collecting invocations, errors, subrequests, and CPU time via CF GraphQL Analytics API |
 
 **Create:** Validate fields → encrypt `api_token` via Electron `safeStorage` → insert into `monitor` table → register cron job if `enabled=true`.
 
@@ -655,9 +671,9 @@ Cron tasks are not persisted as their own table — they are derived from sensor
 
 **Delete:** Cancel cron job → cascade delete all managed sensors (sensors where `monitor_id` matches) and their `sensor_data` → delete `monitor` row.
 
-**Run:** Decrypt API token → fetch external data (e.g., CF Pages projects) → filter excluded projects → for each project, ensure a managed sensor exists → fetch latest data → insert `sensor_data` rows → remove sensors for deleted projects.
+**Run:** Decrypt API token → fetch CF Pages projects → resolve project configs (migrate from `excluded_projects` if `projects` array is empty) → for each configured project: ensure a managed status sensor exists, apply branch filter to deployments, insert latest status data → if `collect_metrics` enabled: ensure a metrics sensor exists, compute build/deploy durations from CF API stages, insert metrics row → auto-generate tags (`cloudflare`, `pages`, `project:{name}`, `branch:{name}`) on all managed sensors → remove sensors for projects no longer configured.
 
-**Test Connection:** Decrypt API token → call external API → return list of discovered resources (e.g., CF Pages projects) without persisting.
+**Test Connection:** Decrypt API token → call CF API → return `{ name, production_branch }[]` for discovered projects without persisting.
 
 **Cascade:** Deleting a monitor removes all its managed sensors and their data.
 
@@ -1585,6 +1601,8 @@ tests/
 | delete monitor removes managed sensors | Confirm delete; monitor and managed sensors removed. |
 | managed sensor shows badge | Sensor with monitor_id shows "Managed" badge in sensor list. |
 | managed sensor edit redirects | Click edit on managed sensor; navigates to monitor page. |
+| monitor with projects config | Create monitor with projects array; verify config persists with branches and collect_metrics. |
+| managed sensor with tags | Create managed sensor with auto-generated tags; verify tags include cloudflare, pages, project:{name}. |
 
 ### 8.4 Platform Matrix
 

@@ -1,6 +1,6 @@
 // Entity type definitions matching DuckDB schema
 
-export type ExecutionType = 'typescript' | 'bash' | 'docker' | 'powershell' | 'file'
+export type ExecutionType = 'typescript' | 'bash' | 'docker' | 'powershell' | 'file' | 'cfp_build' | 'cfp_func_metrics'
 export type AlertState = 'ok' | 'notice' | 'warning' | 'error'
 export type NotificationMethod = 'smtp' | 'webhook' | 'desktop'
 export type PanelType = 'graph' | 'custom'
@@ -220,10 +220,17 @@ export interface CronExecutionLog {
 // Monitor types
 export type MonitorType = 'cloudflare_pages'
 
+export interface CloudflarePagesProjectConfig {
+  name: string
+  branches: string[]        // empty = all branches
+  collect_metrics: boolean  // create a separate metrics sensor
+}
+
 export interface CloudflarePagesConfig {
   api_token: string
   account_id: string
-  excluded_projects: string[]
+  excluded_projects: string[]  // kept for backward compat migration
+  projects: CloudflarePagesProjectConfig[]  // explicit project list
 }
 
 export type MonitorConfig = CloudflarePagesConfig

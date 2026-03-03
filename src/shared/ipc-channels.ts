@@ -72,6 +72,7 @@ export const IPC_CHANNELS = {
   MONITOR_DELETE: 'monitor:delete',
   MONITOR_RUN: 'monitor:run',
   MONITOR_TEST_CONNECTION: 'monitor:test-connection',
+  MONITOR_DISCOVER_PROJECTS: 'monitor:discover-projects',
 
   // Dialog channels
   DIALOG_OPEN_FILE: 'dialog:open-file',

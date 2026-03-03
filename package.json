@@ -16,7 +16,7 @@
     "lint": "eslint src/",
     "format": "prettier --write .",
     "test:unit": "vitest run",
-    "test:e2e": "playwright test",
+    "test:e2e": "xvfb-run --auto-servernum playwright test",
     "package": "electron-builder",
     "package:mac": "electron-builder --mac",
     "package:linux": "electron-builder --linux",

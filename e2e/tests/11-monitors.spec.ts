@@ -112,10 +112,11 @@ test.describe('Monitors', () => {
     const monitor = makeMonitor({ name: `Badge Test Monitor ${Date.now()}` })
     const monitorResult = await ipc.createMonitor(monitor)
 
-    // Create a managed sensor via IPC (with monitor_id)
+    // Create a managed sensor via IPC (with monitor_id and tags)
     const sensor = makeSensor({
       name: `CF: Badge Test ${Date.now()}`,
       monitor_id: monitorResult.id,
+      tags: ['cloudflare', 'pages', `project:badge-test-${Date.now()}`],
     })
     await ipc.createSensor(sensor)
 
@@ -137,10 +138,11 @@ test.describe('Monitors', () => {
     const monitor = makeMonitor({ name: `Redirect Test Monitor ${Date.now()}` })
     const monitorResult = await ipc.createMonitor(monitor)
 
-    // Create a managed sensor via IPC
+    // Create a managed sensor via IPC (with tags)
     const sensor = makeSensor({
       name: `CF: Redirect Test ${Date.now()}`,
       monitor_id: monitorResult.id,
+      tags: ['cloudflare', 'pages', `project:redirect-test-${Date.now()}`],
     })
     await ipc.createSensor(sensor)
 
@@ -157,6 +159,53 @@ test.describe('Monitors', () => {
 
     // Verify we're on the monitor edit page
     await expect(page.locator('h1', { hasText: 'Edit Monitor' })).toBeVisible()
+
+    // Cleanup
+    await ipc.deleteMonitor(monitorResult.id)
+  })
+
+  test('monitor with projects config stores project settings', async () => {
+    const monitor = makeMonitor({
+      name: `Projects Config Test ${Date.now()}`,
+      config: {
+        api_token: 'test-token-encrypted',
+        account_id: 'test-account-id',
+        excluded_projects: [],
+        projects: [
+          { name: 'my-site', branches: ['main'], collect_metrics: false },
+          { name: 'my-app', branches: ['main', 'staging'], collect_metrics: true },
+        ],
+      },
+    })
+    const result = await ipc.createMonitor(monitor)
+    expect(result.id).toBeTruthy()
+
+    const fetched = await ipc.getMonitor(result.id) as { config: { projects: Array<{ name: string; branches: string[]; collect_metrics: boolean }> } }
+    expect(fetched.config.projects).toHaveLength(2)
+    expect(fetched.config.projects[0].name).toBe('my-site')
+    expect(fetched.config.projects[0].branches).toEqual(['main'])
+    expect(fetched.config.projects[1].collect_metrics).toBe(true)
+
+    // Cleanup
+    await ipc.deleteMonitor(result.id)
+  })
+
+  test('managed sensor with tags shows tags on sensor', async () => {
+    const monitor = makeMonitor({ name: `Tags Test Monitor ${Date.now()}` })
+    const monitorResult = await ipc.createMonitor(monitor)
+
+    // Create a managed sensor with auto-generated tags
+    const sensor = makeSensor({
+      name: `CF: Tags Test ${Date.now()}`,
+      monitor_id: monitorResult.id,
+      tags: ['cloudflare', 'pages', 'project:my-site'],
+    })
+    const sensorResult = await ipc.createSensor(sensor)
+
+    const fetched = await ipc.getSensor(sensorResult.id) as { tags: string[] }
+    expect(fetched.tags).toContain('cloudflare')
+    expect(fetched.tags).toContain('pages')
+    expect(fetched.tags).toContain('project:my-site')
 
     // Cleanup
     await ipc.deleteMonitor(monitorResult.id)

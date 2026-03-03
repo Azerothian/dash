@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import type { Monitor, CreateMonitor, UpdateMonitor, CloudflarePagesConfig } from '@shared/entities'
+import type { Monitor, CreateMonitor, UpdateMonitor, CloudflarePagesConfig, CloudflarePagesProjectConfig } from '@shared/entities'
 import { IPC_CHANNELS } from '@shared/ipc-channels'
 
 export function useMonitors() {
@@ -58,10 +58,18 @@ export function useRunMonitor() {
   })
 }
 
+export function useDiscoverMonitorProjects(monitorId: string | undefined) {
+  return useQuery<{ success: boolean; projects?: { name: string; production_branch: string }[]; error?: string }>({
+    queryKey: ['monitor-projects', monitorId],
+    queryFn: () => window.api.invoke(IPC_CHANNELS.MONITOR_DISCOVER_PROJECTS, monitorId),
+    enabled: !!monitorId,
+  })
+}
+
 export function useTestMonitorConnection() {
   return useMutation({
     mutationFn: (config: CloudflarePagesConfig) =>
-      window.api.invoke<{ success: boolean; projects?: string[]; error?: string }>(
+      window.api.invoke<{ success: boolean; projects?: { name: string; production_branch: string }[]; error?: string }>(
         IPC_CHANNELS.MONITOR_TEST_CONNECTION,
         config,
       ),

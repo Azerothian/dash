@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'
-import { ArrowLeft, Save, Loader2, Wifi, WifiOff } from 'lucide-react'
-import { useMonitor, useCreateMonitor, useUpdateMonitor, useTestMonitorConnection } from '../../hooks/useMonitors'
+import { ArrowLeft, Save, Loader2, Wifi, WifiOff, X, Plus, ChevronDown } from 'lucide-react'
+import { useMonitor, useCreateMonitor, useUpdateMonitor, useTestMonitorConnection, useDiscoverMonitorProjects } from '../../hooks/useMonitors'
 import { useSensors } from '../../hooks/useSensors'
 import { CronInput } from '../shared/CronInput'
-import type { MonitorType, CloudflarePagesConfig } from '@shared/entities'
+import type { MonitorType, CloudflarePagesConfig, CloudflarePagesProjectConfig } from '@shared/entities'
 
 interface MonitorFormProps {
   monitorId?: string
@@ -16,18 +16,21 @@ export function MonitorForm({ monitorId, onClose }: MonitorFormProps) {
   const createMutation = useCreateMonitor()
   const updateMutation = useUpdateMonitor()
   const testMutation = useTestMonitorConnection()
+  const { data: discovered } = useDiscoverMonitorProjects(monitorId)
 
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [monitorType, setMonitorType] = useState<MonitorType>('cloudflare_pages')
   const [apiToken, setApiToken] = useState('')
   const [accountId, setAccountId] = useState('')
-  const [excludedProjects, setExcludedProjects] = useState<string[]>([])
+  const [projects, setProjects] = useState<CloudflarePagesProjectConfig[]>([])
   const [cronExpression, setCronExpression] = useState('*/5 * * * *')
   const [enabled, setEnabled] = useState(true)
 
   // Test connection state
-  const [discoveredProjects, setDiscoveredProjects] = useState<string[] | null>(null)
+  const [discoveredProjects, setDiscoveredProjects] = useState<{ name: string; production_branch: string }[] | null>(null)
+  const [addDropdownOpen, setAddDropdownOpen] = useState(false)
+  const [manualProjectName, setManualProjectName] = useState('')
 
   useEffect(() => {
     if (monitor) {
@@ -39,11 +42,42 @@ export function MonitorForm({ monitorId, onClose }: MonitorFormProps) {
       if (monitor.monitor_type === 'cloudflare_pages') {
         const cfg = monitor.config as CloudflarePagesConfig
         setAccountId(cfg.account_id || '')
-        setExcludedProjects(cfg.excluded_projects || [])
+        // Load projects config, with migration from excluded_projects
+        if (cfg.projects && cfg.projects.length > 0) {
+          setProjects(cfg.projects)
+        } else {
+          // Derive from managed sensors for legacy monitors (tag-based lookup)
+          const managed = sensors?.filter((s) => s.monitor_id === monitor.id) || []
+          const derived: CloudflarePagesProjectConfig[] = []
+          const functionsNames = new Set<string>()
+          for (const s of managed) {
+            const projectTag = s.tags.find((t) => t.startsWith('project:'))
+            if (!projectTag) continue
+            const projectName = projectTag.slice(8)
+            if (s.tags.includes('functions')) {
+              functionsNames.add(projectName)
+            } else if (!derived.find((d) => d.name === projectName)) {
+              derived.push({ name: projectName, branches: [], collect_metrics: false })
+            }
+          }
+          if (derived.length > 0) {
+            for (const p of derived) {
+              if (functionsNames.has(p.name)) p.collect_metrics = true
+            }
+            setProjects(derived)
+          }
+        }
         // Don't populate token - it's encrypted
       }
     }
-  }, [monitor])
+  }, [monitor, sensors])
+
+  // Seed discoveredProjects from the backend discover query (uses stored encrypted token)
+  useEffect(() => {
+    if (discovered?.success && discovered.projects && !discoveredProjects) {
+      setDiscoveredProjects(discovered.projects)
+    }
+  }, [discovered])
 
   const handleTestConnection = async () => {
     if (!apiToken || !accountId) return
@@ -51,17 +85,45 @@ export function MonitorForm({ monitorId, onClose }: MonitorFormProps) {
       api_token: apiToken,
       account_id: accountId,
       excluded_projects: [],
+      projects: [],
     })
     if (result.success && result.projects) {
       setDiscoveredProjects(result.projects)
+      // Auto-populate projects if none configured yet
+      if (projects.length === 0) {
+        setProjects(result.projects.map((p) => ({
+          name: p.name,
+          branches: [p.production_branch],
+          collect_metrics: false,
+        })))
+      }
     }
+  }
+
+  const handleRemoveProject = (projectName: string) => {
+    setProjects(projects.filter((p) => p.name !== projectName))
+  }
+
+  const handleAddProject = (projectName: string) => {
+    const discovered = discoveredProjects?.find((p) => p.name === projectName)
+    setProjects([...projects, {
+      name: projectName,
+      branches: discovered ? [discovered.production_branch] : [],
+      collect_metrics: false,
+    }])
+    setAddDropdownOpen(false)
+  }
+
+  const handleUpdateProject = (index: number, updates: Partial<CloudflarePagesProjectConfig>) => {
+    setProjects(projects.map((p, i) => i === index ? { ...p, ...updates } : p))
   }
 
   const handleSubmit = async () => {
     const config: CloudflarePagesConfig = {
       api_token: apiToken,
       account_id: accountId,
-      excluded_projects: excludedProjects,
+      excluded_projects: [],
+      projects,
     }
 
     const data = {
@@ -76,7 +138,6 @@ export function MonitorForm({ monitorId, onClose }: MonitorFormProps) {
     if (monitorId) {
       // Only send token if user typed a new one
       if (!apiToken) {
-        // Remove token from config so backend doesn't re-encrypt empty string
         delete (data.config as Partial<CloudflarePagesConfig>).api_token
       }
       await updateMutation.mutateAsync({ id: monitorId, ...data })
@@ -97,6 +158,8 @@ export function MonitorForm({ monitorId, onClose }: MonitorFormProps) {
   }
 
   const managedSensors = sensors?.filter((s) => s.monitor_id === monitorId) || []
+  const configuredProjectNames = new Set(projects.map((p) => p.name))
+  const availableToAdd = discoveredProjects?.filter((p) => !configuredProjectNames.has(p.name)) || []
 
   return (
     <div className="mx-auto max-w-2xl space-y-6 pb-8">
@@ -208,35 +271,125 @@ export function MonitorForm({ monitorId, onClose }: MonitorFormProps) {
             </span>
           )}
         </div>
+      </div>
 
-        {discoveredProjects && discoveredProjects.length > 0 && (
-          <div className="space-y-2">
-            <label className="block text-sm font-medium">
-              Discovered Projects ({discoveredProjects.length})
-            </label>
-            <p className="text-xs text-muted-foreground">
-              Uncheck projects to exclude them from monitoring.
-            </p>
-            <div className="max-h-48 overflow-y-auto rounded-md border border-border bg-background p-2 space-y-1">
-              {discoveredProjects.map((project) => (
-                <label key={project} className="flex items-center gap-2 cursor-pointer py-0.5">
-                  <input
-                    type="checkbox"
-                    checked={!excludedProjects.includes(project)}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setExcludedProjects(excludedProjects.filter((p) => p !== project))
-                      } else {
-                        setExcludedProjects([...excludedProjects, project])
-                      }
-                    }}
-                    className="rounded"
-                  />
-                  <span className="text-sm">{project}</span>
-                </label>
-              ))}
+      <div className="space-y-4 rounded-lg border border-border bg-card p-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-medium">Projects ({projects.length})</h2>
+          <div className="flex items-center gap-2">
+            {availableToAdd.length > 0 && (
+              <div className="relative">
+                <button
+                  onClick={() => setAddDropdownOpen(!addDropdownOpen)}
+                  className="flex items-center gap-1 rounded-md bg-secondary px-3 py-1.5 text-sm hover:bg-secondary/80"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Add Project
+                  <ChevronDown className="h-3.5 w-3.5" />
+                </button>
+                {addDropdownOpen && (
+                  <div className="absolute right-0 top-full z-10 mt-1 w-56 rounded-md border border-border bg-popover p-1 shadow-md">
+                    {availableToAdd.map((p) => (
+                      <button
+                        key={p.name}
+                        onClick={() => handleAddProject(p.name)}
+                        className="w-full rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+                      >
+                        {p.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            <div className="flex items-center gap-1">
+              <input
+                type="text"
+                className="w-36 rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+                value={manualProjectName}
+                onChange={(e) => setManualProjectName(e.target.value)}
+                placeholder="Project name"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && manualProjectName.trim() && !configuredProjectNames.has(manualProjectName.trim())) {
+                    handleAddProject(manualProjectName.trim())
+                    setManualProjectName('')
+                  }
+                }}
+              />
+              <button
+                onClick={() => {
+                  if (manualProjectName.trim() && !configuredProjectNames.has(manualProjectName.trim())) {
+                    handleAddProject(manualProjectName.trim())
+                    setManualProjectName('')
+                  }
+                }}
+                disabled={!manualProjectName.trim() || configuredProjectNames.has(manualProjectName.trim())}
+                className="flex items-center gap-1 rounded-md bg-secondary px-2 py-1.5 text-sm hover:bg-secondary/80 disabled:opacity-50"
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </button>
             </div>
           </div>
+        </div>
+        {projects.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-4 text-center">
+            No projects configured. Use Test Connection to discover and add projects.
+          </p>
+        ) : (
+          <>
+            <p className="text-xs text-muted-foreground">
+              Configure which projects to monitor, branch filters, and metrics collection.
+            </p>
+            <div className="space-y-3">
+              {projects.map((project, index) => {
+                const discovered = discoveredProjects?.find((p) => p.name === project.name)
+                return (
+                  <div
+                    key={project.name}
+                    className="rounded-md border border-border bg-background p-3 space-y-2"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium">{project.name}</span>
+                      <button
+                        onClick={() => handleRemoveProject(project.name)}
+                        className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                        title="Remove project"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-muted-foreground mb-1">
+                        Branches (comma-separated, empty = all)
+                      </label>
+                      <input
+                        type="text"
+                        className="w-full rounded-md border border-input bg-background px-2 py-1 text-sm"
+                        value={project.branches.join(', ')}
+                        onChange={(e) => {
+                          const branches = e.target.value
+                            .split(',')
+                            .map((b) => b.trim())
+                            .filter(Boolean)
+                          handleUpdateProject(index, { branches })
+                        }}
+                        placeholder={discovered?.production_branch || 'main'}
+                      />
+                    </div>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={project.collect_metrics}
+                        onChange={(e) => handleUpdateProject(index, { collect_metrics: e.target.checked })}
+                        className="rounded"
+                      />
+                      <span className="text-xs">Collect Functions metrics</span>
+                    </label>
+                  </div>
+                )
+              })}
+            </div>
+          </>
         )}
       </div>
 

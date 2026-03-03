@@ -201,15 +201,23 @@ export class IpcBridgeService implements OnModuleInit {
       }
       const monitor = await this.monitors.create(data)
       await this.cron.refreshEntity('monitor', monitor.id)
+      await this.monitorExecutor.syncSensors(monitor)
       return monitor
     })
     ipcMain.handle(IPC_CHANNELS.MONITOR_UPDATE, async (_event, data: UpdateMonitor) => {
-      // Encrypt the API token if provided
+      // Encrypt the API token if provided, otherwise preserve the existing stored token
       if (data.config && 'api_token' in data.config && data.config.api_token) {
         data.config.api_token = this.monitorExecutor.encryptToken(data.config.api_token)
+      } else if (data.config) {
+        const existing = await this.monitors.get(data.id)
+        if (existing) {
+          const existingConfig = existing.config as CloudflarePagesConfig
+          ;(data.config as CloudflarePagesConfig).api_token = existingConfig.api_token
+        }
       }
       const monitor = await this.monitors.update(data)
       await this.cron.refreshEntity('monitor', data.id)
+      await this.monitorExecutor.syncSensors(monitor)
       return monitor
     })
     ipcMain.handle(IPC_CHANNELS.MONITOR_DELETE, async (_event, id: string) => {
@@ -231,6 +239,12 @@ export class IpcBridgeService implements OnModuleInit {
         api_token: this.monitorExecutor.encryptToken(config.api_token),
       }
       return this.monitorExecutor.testConnection(encryptedConfig)
+    })
+    ipcMain.handle(IPC_CHANNELS.MONITOR_DISCOVER_PROJECTS, async (_event, id: string) => {
+      const monitor = await this.monitors.get(id)
+      if (!monitor) throw new Error(`Monitor ${id} not found`)
+      const config = monitor.config as CloudflarePagesConfig
+      return this.monitorExecutor.testConnection(config)
     })
   }
 
