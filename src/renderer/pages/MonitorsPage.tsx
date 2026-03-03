@@ -10,7 +10,7 @@ import {
   CheckCircle,
   XCircle,
 } from 'lucide-react'
-import { useMonitors, useDeleteMonitor, useRunMonitor } from '../hooks/useMonitors'
+import { useMonitors, useDeleteMonitor, useRunMonitor, useUpdateMonitor } from '../hooks/useMonitors'
 import { MonitorForm } from '../components/monitor/MonitorForm'
 import { ConfirmDialog } from '../components/shared/ConfirmDialog'
 import type { Monitor, MonitorType } from '@shared/entities'
@@ -21,6 +21,7 @@ export function MonitorsPage() {
   const { data: monitors, isLoading } = useMonitors()
   const deleteMutation = useDeleteMonitor()
   const runMutation = useRunMonitor()
+  const updateMutation = useUpdateMonitor()
   const [showForm, setShowForm] = useState(!!id)
   const [deleteTarget, setDeleteTarget] = useState<Monitor | null>(null)
 
@@ -84,6 +85,7 @@ export function MonitorsPage() {
                   monitor={monitor}
                   onEdit={() => navigate(`/monitors/${monitor.id}`)}
                   onRun={() => runMutation.mutate(monitor.id)}
+                  onToggle={() => updateMutation.mutate({ id: monitor.id, enabled: !monitor.enabled })}
                   onDelete={() => setDeleteTarget(monitor)}
                   isRunning={runMutation.isPending && runMutation.variables === monitor.id}
                 />
@@ -115,12 +117,14 @@ const typeLabels: Record<MonitorType, string> = {
 
 function MonitorRow({
   monitor,
+  onToggle,
   onEdit,
   onRun,
   onDelete,
   isRunning,
 }: {
   monitor: Monitor
+  onToggle: () => void
   onEdit: () => void
   onRun: () => void
   onDelete: () => void
@@ -138,17 +142,27 @@ function MonitorRow({
         {monitor.cron_expression}
       </td>
       <td className="px-4 py-3">
-        {monitor.enabled ? (
-          <span className="flex items-center gap-1 text-alert-ok">
-            <CheckCircle className="h-3.5 w-3.5" />
-            Active
-          </span>
-        ) : (
-          <span className="flex items-center gap-1 text-muted-foreground">
-            <XCircle className="h-3.5 w-3.5" />
-            Paused
-          </span>
-        )}
+        <button
+          onClick={onToggle}
+          className={`flex items-center gap-1 rounded-full px-2 py-0.5 transition-colors ${
+            monitor.enabled
+              ? 'text-alert-ok hover:bg-alert-ok/10'
+              : 'text-muted-foreground hover:bg-muted'
+          }`}
+          title={monitor.enabled ? 'Click to pause' : 'Click to activate'}
+        >
+          {monitor.enabled ? (
+            <>
+              <CheckCircle className="h-3.5 w-3.5" />
+              Active
+            </>
+          ) : (
+            <>
+              <XCircle className="h-3.5 w-3.5" />
+              Paused
+            </>
+          )}
+        </button>
       </td>
       <td className="px-4 py-3">
         <div className="flex items-center justify-end gap-1">
