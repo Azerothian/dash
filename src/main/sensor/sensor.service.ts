@@ -24,15 +24,14 @@ export class SensorService {
     const id = uuidv4()
     const now = new Date().toISOString()
     await this.db.run(
-      `INSERT INTO sensor (id, name, description, execution_type, script_source, script_content,
+      `INSERT INTO sensor (id, name, description, execution_type, script_content,
         script_file_path, json_selector, table_definition, retention_rules, cron_expression,
         env_vars, enabled, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       id,
       data.name,
       data.description || '',
       data.execution_type,
-      data.script_source || 'inline',
       data.script_content,
       data.script_file_path || '',
       '$',
@@ -57,7 +56,6 @@ export class SensorService {
     if (data.name !== undefined) { fields.push('name = ?'); values.push(data.name) }
     if (data.description !== undefined) { fields.push('description = ?'); values.push(data.description) }
     if (data.execution_type !== undefined) { fields.push('execution_type = ?'); values.push(data.execution_type) }
-    if (data.script_source !== undefined) { fields.push('script_source = ?'); values.push(data.script_source) }
     if (data.script_content !== undefined) { fields.push('script_content = ?'); values.push(data.script_content) }
     if (data.script_file_path !== undefined) { fields.push('script_file_path = ?'); values.push(data.script_file_path) }
     if (data.table_definition !== undefined) { fields.push('table_definition = ?'); values.push(JSON.stringify(data.table_definition)) }
@@ -155,7 +153,6 @@ export class SensorService {
       name: row.name as string,
       description: (row.description as string) || '',
       execution_type: row.execution_type as Sensor['execution_type'],
-      script_source: (row.script_source as Sensor['script_source']) || 'inline',
       script_content: row.script_content as string,
       script_file_path: (row.script_file_path as string) || '',
       table_definition: typeof row.table_definition === 'string' ? JSON.parse(row.table_definition) : row.table_definition as Sensor['table_definition'],

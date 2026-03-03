@@ -182,7 +182,7 @@ export class CronManagerService implements OnModuleInit {
     const result = await this.executor.execute(
       sensor.execution_type, sensor.script_content,
       sensor.table_definition, sensor.env_vars,
-      sensor.script_source, sensor.script_file_path,
+      sensor.script_file_path,
     )
     if (!result.success) {
       throw new Error(result.error || 'Sensor execution failed')

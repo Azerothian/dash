@@ -25,7 +25,6 @@ export class ExecutorService {
     script: string,
     columns: ColumnDefinition[],
     envVars: Record<string, string>,
-    scriptSource: 'inline' | 'file' = 'inline',
     scriptFilePath?: string,
   ): Promise<ExecutionResult> {
     const start = Date.now()
@@ -35,25 +34,25 @@ export class ExecutorService {
       const mergedEnv = { ...globalVars, ...envVars }
 
       let rawOutput: string
-      if (scriptSource === 'file' && scriptFilePath) {
-        rawOutput = await this.executeFile(type, scriptFilePath, mergedEnv)
-      } else {
-        switch (type) {
-          case 'typescript':
-            rawOutput = await this.executeTypeScript(script, mergedEnv)
-            break
-          case 'bash':
-            rawOutput = await this.executeBash(script, mergedEnv)
-            break
-          case 'docker':
-            rawOutput = await this.executeDocker(script, mergedEnv)
-            break
-          case 'powershell':
-            rawOutput = await this.executePowerShell(script, mergedEnv)
-            break
-          default:
-            throw new Error(`Unsupported execution type: ${type}`)
-        }
+      switch (type) {
+        case 'typescript':
+          rawOutput = await this.executeTypeScript(script, mergedEnv)
+          break
+        case 'bash':
+          rawOutput = await this.executeBash(script, mergedEnv)
+          break
+        case 'docker':
+          rawOutput = await this.executeDocker(script, mergedEnv)
+          break
+        case 'powershell':
+          rawOutput = await this.executePowerShell(script, mergedEnv)
+          break
+        case 'file':
+          if (!scriptFilePath) throw new Error('File execution type requires a script file path')
+          rawOutput = await this.executeFromFile(scriptFilePath, mergedEnv)
+          break
+        default:
+          throw new Error(`Unsupported execution type: ${type}`)
       }
 
       const parsed = JSON.parse(rawOutput.trim())
@@ -93,10 +92,13 @@ export class ExecutorService {
     }
   }
 
-  private async executeFile(type: ExecutionType, filePath: string, env: Record<string, string>): Promise<string> {
-    switch (type) {
-      case 'typescript':
+  private async executeFromFile(filePath: string, env: Record<string, string>): Promise<string> {
+    const ext = filePath.split('.').pop()?.toLowerCase()
+    switch (ext) {
+      case 'ts':
+      case 'mts':
         return this.bundleAndRunTypeScript(filePath, env)
+      case 'sh':
       case 'bash':
         if (process.platform === 'win32') {
           const wslDistro = await this.settings.get('wsl_distro')
@@ -107,17 +109,16 @@ export class ExecutorService {
           return this.runCommand(`wsl -d ${wslDistro} bash "${wslPath}"`, env)
         }
         return this.runCommand(`bash "${filePath}"`, env)
-      case 'powershell':
+      case 'ps1':
         if (process.platform !== 'win32') {
           throw new Error('PowerShell execution is only available on Windows.')
         }
         return this.runCommand(`powershell -ExecutionPolicy Bypass -File "${filePath}"`, env)
-      case 'docker': {
-        const content = await readFile(filePath, 'utf-8')
-        return this.executeDocker(content, env)
-      }
+      case 'js':
+      case 'mjs':
+        return this.runCommand(`node "${filePath}"`, env)
       default:
-        throw new Error(`Unsupported execution type: ${type}`)
+        throw new Error(`Unsupported file extension: .${ext}`)
     }
   }
 

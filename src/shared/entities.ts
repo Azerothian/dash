@@ -1,6 +1,6 @@
 // Entity type definitions matching DuckDB schema
 
-export type ExecutionType = 'typescript' | 'bash' | 'docker' | 'powershell'
+export type ExecutionType = 'typescript' | 'bash' | 'docker' | 'powershell' | 'file'
 export type AlertState = 'ok' | 'notice' | 'warning' | 'error'
 export type NotificationMethod = 'smtp' | 'webhook' | 'desktop'
 export type PanelType = 'graph' | 'custom'
@@ -38,14 +38,11 @@ export interface AlertRule {
   severity: AlertSeverity
 }
 
-export type ScriptSource = 'inline' | 'file'
-
 export interface Sensor {
   id: string
   name: string
   description: string
   execution_type: ExecutionType
-  script_source: ScriptSource
   script_content: string
   script_file_path: string
   table_definition: ColumnDefinition[]
