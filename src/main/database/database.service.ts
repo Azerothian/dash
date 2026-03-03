@@ -257,6 +257,24 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       )
     `)
 
+    // Monitors
+    await this.run(`
+      CREATE TABLE IF NOT EXISTS monitor (
+        id VARCHAR PRIMARY KEY,
+        name VARCHAR NOT NULL UNIQUE,
+        description VARCHAR DEFAULT '',
+        monitor_type VARCHAR NOT NULL,
+        config JSON NOT NULL,
+        cron_expression VARCHAR NOT NULL,
+        enabled BOOLEAN DEFAULT true,
+        created_at TIMESTAMP DEFAULT current_timestamp,
+        updated_at TIMESTAMP DEFAULT current_timestamp
+      )
+    `)
+
+    // Add monitor_id column to sensor if missing
+    await this.migrateSensorMonitorId()
+
     // Settings
     await this.run(`
       CREATE TABLE IF NOT EXISTS settings (
@@ -265,5 +283,13 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         updated_at TIMESTAMP DEFAULT current_timestamp
       )
     `)
+  }
+
+  private async migrateSensorMonitorId(): Promise<void> {
+    try {
+      await this.all("SELECT monitor_id FROM sensor LIMIT 1")
+    } catch {
+      await this.run("ALTER TABLE sensor ADD COLUMN monitor_id VARCHAR DEFAULT NULL")
+    }
   }
 }

@@ -5,6 +5,7 @@ import { DashboardPage } from './pages/DashboardPage'
 import { SensorsPage } from './pages/SensorsPage'
 import { AlertsPage } from './pages/AlertsPage'
 import { NotificationsPage } from './pages/NotificationsPage'
+import { MonitorsPage } from './pages/MonitorsPage'
 import { CronPage } from './pages/CronPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { useThemeInit } from './hooks/useThemeInit'
@@ -31,6 +32,8 @@ export function App() {
             <Route path="/dashboard/:id" element={<DashboardPage />} />
             <Route path="/sensors" element={<SensorsPage />} />
             <Route path="/sensors/:id" element={<SensorsPage />} />
+            <Route path="/monitors" element={<MonitorsPage />} />
+            <Route path="/monitors/:id" element={<MonitorsPage />} />
             <Route path="/alerts" element={<AlertsPage />} />
             <Route path="/alerts/:id" element={<AlertsPage />} />
             <Route path="/notifications" element={<NotificationsPage />} />

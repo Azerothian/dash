@@ -6,7 +6,7 @@ export type NotificationMethod = 'smtp' | 'webhook' | 'desktop'
 export type PanelType = 'graph' | 'custom'
 export type GraphType = 'line' | 'bar' | 'area' | 'pie' | 'scatter' | 'radar'
 export type ThemeSetting = 'light' | 'dark' | 'system'
-export type CronTaskType = 'sensor' | 'alert' | 'notification'
+export type CronTaskType = 'sensor' | 'alert' | 'notification' | 'monitor'
 export type AggregationFunction = 'avg' | 'min' | 'max' | 'sum' | 'count' | 'last'
 export type ComparisonOperator = '>' | '>=' | '<' | '<=' | '==' | '!='
 export type AlertSeverity = 'notice' | 'warning' | 'error'
@@ -50,6 +50,7 @@ export interface Sensor {
   cron_expression: string
   env_vars: Record<string, string>
   enabled: boolean
+  monitor_id: string | null
   created_at: string
   updated_at: string
 }
@@ -214,7 +215,32 @@ export interface CronExecutionLog {
   executed_at: string
 }
 
+// Monitor types
+export type MonitorType = 'cloudflare_pages'
+
+export interface CloudflarePagesConfig {
+  api_token: string
+  account_id: string
+  excluded_projects: string[]
+}
+
+export type MonitorConfig = CloudflarePagesConfig
+
+export interface Monitor {
+  id: string
+  name: string
+  description: string
+  monitor_type: MonitorType
+  config: MonitorConfig
+  cron_expression: string
+  enabled: boolean
+  created_at: string
+  updated_at: string
+}
+
 // Create/Update DTOs
+export type CreateMonitor = Omit<Monitor, 'id' | 'created_at' | 'updated_at'>
+export type UpdateMonitor = Partial<CreateMonitor> & { id: string }
 export type CreateSensor = Omit<Sensor, 'id' | 'created_at' | 'updated_at'>
 export type UpdateSensor = Partial<CreateSensor> & { id: string }
 export type CreateAlert = Omit<Alert, 'id' | 'state' | 'acknowledged' | 'ack_message' | 'ack_at' | 'created_at' | 'updated_at'>

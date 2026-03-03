@@ -26,8 +26,8 @@ export class SensorService {
     await this.db.run(
       `INSERT INTO sensor (id, name, description, execution_type, script_content,
         script_file_path, json_selector, table_definition, retention_rules, cron_expression,
-        env_vars, enabled, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        env_vars, enabled, monitor_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       id,
       data.name,
       data.description || '',
@@ -40,6 +40,7 @@ export class SensorService {
       data.cron_expression,
       JSON.stringify(data.env_vars || {}),
       data.enabled ?? true,
+      data.monitor_id ?? null,
       now,
       now,
     )
@@ -63,6 +64,7 @@ export class SensorService {
     if (data.cron_expression !== undefined) { fields.push('cron_expression = ?'); values.push(data.cron_expression) }
     if (data.env_vars !== undefined) { fields.push('env_vars = ?'); values.push(JSON.stringify(data.env_vars)) }
     if (data.enabled !== undefined) { fields.push('enabled = ?'); values.push(data.enabled) }
+    if (data.monitor_id !== undefined) { fields.push('monitor_id = ?'); values.push(data.monitor_id) }
 
     if (fields.length > 0) {
       fields.push('updated_at = ?')
@@ -78,6 +80,14 @@ export class SensorService {
     await this.db.run('DELETE FROM sensor_data WHERE sensor_id = ?', id)
     await this.db.run('DELETE FROM panel_sensor WHERE sensor_id = ?', id)
     await this.db.run('DELETE FROM sensor WHERE id = ?', id)
+  }
+
+  async listByMonitor(monitorId: string): Promise<Sensor[]> {
+    const rows = await this.db.all<Record<string, unknown>>(
+      'SELECT * FROM sensor WHERE monitor_id = ? ORDER BY name',
+      monitorId,
+    )
+    return rows.map(this.mapRow)
   }
 
   async insertData(sensorId: string, data: Record<string, unknown>): Promise<SensorData> {
@@ -160,6 +170,7 @@ export class SensorService {
       cron_expression: row.cron_expression as string,
       env_vars: typeof row.env_vars === 'string' ? JSON.parse(row.env_vars) : (row.env_vars as Record<string, string>) || {},
       enabled: Boolean(row.enabled),
+      monitor_id: (row.monitor_id as string) || null,
       created_at: String(row.created_at),
       updated_at: String(row.updated_at),
     }

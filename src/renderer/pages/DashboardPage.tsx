@@ -15,6 +15,7 @@ import {
 import { GraphPanel } from '../components/dashboard/GraphPanel'
 import { CustomPanel } from '../components/dashboard/CustomPanel'
 import { PanelOptionsSheet } from '../components/dashboard/PanelOptionsSheet'
+import { ConfirmDialog } from '../components/shared/ConfirmDialog'
 import type { Panel, CreatePanel, UpdatePanel, Dashboard } from '@shared/entities'
 
 export function DashboardPage() {
@@ -30,6 +31,7 @@ export function DashboardPage() {
   const [newDashName, setNewDashName] = useState('')
   const [editingPanel, setEditingPanel] = useState<Panel | null>(null)
   const [showAddPanel, setShowAddPanel] = useState(false)
+  const [deleteDashId, setDeleteDashId] = useState<string | null>(null)
 
   const createDashMutation = useCreateDashboard()
   const deleteDashMutation = useDeleteDashboard()
@@ -57,9 +59,14 @@ export function DashboardPage() {
     navigate(`/dashboard/${dash.id}`)
   }
 
-  const handleDeleteDashboard = async (dashId: string) => {
-    if (!confirm('Delete this dashboard and all its panels?')) return
-    await deleteDashMutation.mutateAsync(dashId)
+  const handleDeleteDashboard = (dashId: string) => {
+    setDeleteDashId(dashId)
+  }
+
+  const confirmDeleteDashboard = async () => {
+    if (!deleteDashId) return
+    await deleteDashMutation.mutateAsync(deleteDashId)
+    setDeleteDashId(null)
     navigate('/dashboard')
   }
 
@@ -206,6 +213,16 @@ export function DashboardPage() {
         />
       )}
 
+      {deleteDashId && (
+        <ConfirmDialog
+          title="Delete Dashboard"
+          message="Delete this dashboard and all its panels?"
+          onConfirm={confirmDeleteDashboard}
+          onCancel={() => setDeleteDashId(null)}
+          isPending={deleteDashMutation.isPending}
+        />
+      )}
+
       {(showAddPanel || editingPanel) && currentDash && (
         <PanelOptionsSheet
           panel={editingPanel || undefined}
@@ -295,8 +312,8 @@ function DashboardGrid({ dashboard, editMode, onEditPanel, onDeletePanel, onBatc
           gs-y={panel.gridstack_config.y}
           gs-w={panel.gridstack_config.w}
           gs-h={panel.gridstack_config.h}
-          gs-min-w={panel.gridstack_config.minW || 2}
-          gs-min-h={panel.gridstack_config.minH || 2}
+          gs-min-w={panel.gridstack_config.minW || 3}
+          gs-min-h={panel.gridstack_config.minH || 3}
         >
           <div className="grid-stack-item-content rounded-lg border border-border bg-card overflow-hidden">
             <div className="relative h-full">

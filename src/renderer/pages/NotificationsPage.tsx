@@ -8,6 +8,7 @@ import {
   useNotifications, useDeleteNotification, useTestNotification, useNotificationHistory,
 } from '../hooks/useNotifications'
 import { NotificationForm } from '../components/notification/NotificationForm'
+import { ConfirmDialog } from '../components/shared/ConfirmDialog'
 import type { Notification, NotificationMethod } from '@shared/entities'
 
 const METHOD_ICONS: Record<NotificationMethod, typeof Mail> = {
@@ -30,6 +31,7 @@ export function NotificationsPage() {
   const testMutation = useTestNotification()
 
   const [showHistory, setShowHistory] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<Notification | null>(null)
 
   if (id) {
     return (
@@ -135,7 +137,7 @@ export function NotificationsPage() {
                           <Edit2 className="h-4 w-4" />
                         </button>
                         <button
-                          onClick={() => { if (confirm(`Delete notification "${n.name}"?`)) deleteMutation.mutate(n.id) }}
+                          onClick={() => setDeleteTarget(n)}
                           className="rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                           title="Delete"
                         >
@@ -149,6 +151,19 @@ export function NotificationsPage() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {deleteTarget && (
+        <ConfirmDialog
+          title="Delete Notification"
+          message={`Delete notification "${deleteTarget.name}"?`}
+          onConfirm={() => {
+            deleteMutation.mutate(deleteTarget.id)
+            setDeleteTarget(null)
+          }}
+          onCancel={() => setDeleteTarget(null)}
+          isPending={deleteMutation.isPending}
+        />
       )}
     </div>
   )

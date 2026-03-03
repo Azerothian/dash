@@ -8,7 +8,9 @@ import { AlertService } from '../alert/alert.service.js'
 import { DashboardService } from '../dashboard/dashboard.service.js'
 import { NotificationService } from '../notification/notification.service.js'
 import { CronManagerService } from '../cron/cron-manager.service.js'
-import type { Settings, CreateSensor, UpdateSensor, CreateAlert, UpdateAlert, CreateDashboard, UpdateDashboard, CreatePanel, UpdatePanel, GridstackConfig, CreateNotification, UpdateNotification, AggregationFunction } from '@shared/entities'
+import { MonitorService } from '../monitor/monitor.service.js'
+import { MonitorExecutorService } from '../monitor/monitor-executor.service.js'
+import type { Settings, CreateSensor, UpdateSensor, CreateAlert, UpdateAlert, CreateDashboard, UpdateDashboard, CreatePanel, UpdatePanel, GridstackConfig, CreateNotification, UpdateNotification, AggregationFunction, CreateMonitor, UpdateMonitor, CloudflarePagesConfig } from '@shared/entities'
 
 @Injectable()
 export class IpcBridgeService implements OnModuleInit {
@@ -20,6 +22,8 @@ export class IpcBridgeService implements OnModuleInit {
     @Inject(DashboardService) private dashboards: DashboardService,
     @Inject(NotificationService) private notifications: NotificationService,
     @Inject(CronManagerService) private cron: CronManagerService,
+    @Inject(MonitorService) private monitors: MonitorService,
+    @Inject(MonitorExecutorService) private monitorExecutor: MonitorExecutorService,
   ) {}
 
   onModuleInit() {
@@ -29,6 +33,7 @@ export class IpcBridgeService implements OnModuleInit {
     this.registerDashboardHandlers()
     this.registerNotificationHandlers()
     this.registerCronHandlers()
+    this.registerMonitorHandlers()
     this.registerDialogHandlers()
   }
 
@@ -180,6 +185,49 @@ export class IpcBridgeService implements OnModuleInit {
     })
     ipcMain.handle(IPC_CHANNELS.NOTIFICATION_HISTORY_LIST, async (_event, notificationId: string, limit?: number, offset?: number) => {
       return this.notifications.getHistory(notificationId, limit, offset)
+    })
+  }
+
+  private registerMonitorHandlers() {
+    ipcMain.handle(IPC_CHANNELS.MONITOR_LIST, async () => this.monitors.list())
+    ipcMain.handle(IPC_CHANNELS.MONITOR_GET, async (_event, id: string) => this.monitors.get(id))
+    ipcMain.handle(IPC_CHANNELS.MONITOR_CREATE, async (_event, data: CreateMonitor) => {
+      // Encrypt the API token before storing
+      if (data.config && 'api_token' in data.config && data.config.api_token) {
+        data.config.api_token = this.monitorExecutor.encryptToken(data.config.api_token)
+      }
+      const monitor = await this.monitors.create(data)
+      await this.cron.refreshEntity('monitor', monitor.id)
+      return monitor
+    })
+    ipcMain.handle(IPC_CHANNELS.MONITOR_UPDATE, async (_event, data: UpdateMonitor) => {
+      // Encrypt the API token if provided
+      if (data.config && 'api_token' in data.config && data.config.api_token) {
+        data.config.api_token = this.monitorExecutor.encryptToken(data.config.api_token)
+      }
+      const monitor = await this.monitors.update(data)
+      await this.cron.refreshEntity('monitor', data.id)
+      return monitor
+    })
+    ipcMain.handle(IPC_CHANNELS.MONITOR_DELETE, async (_event, id: string) => {
+      await this.cron.removeEntity('monitor', id)
+      await this.monitors.delete(id)
+      return { success: true }
+    })
+    ipcMain.handle(IPC_CHANNELS.MONITOR_RUN, async (_event, id: string) => {
+      const monitor = await this.monitors.get(id)
+      if (!monitor) throw new Error(`Monitor ${id} not found`)
+      await this.monitorExecutor.execute(monitor)
+      this.broadcast(IPC_CHANNELS.SENSOR_DATA_UPDATED, id)
+      return { success: true }
+    })
+    ipcMain.handle(IPC_CHANNELS.MONITOR_TEST_CONNECTION, async (_event, config: CloudflarePagesConfig) => {
+      // Encrypt token first so testConnection can decrypt it
+      const encryptedConfig = {
+        ...config,
+        api_token: this.monitorExecutor.encryptToken(config.api_token),
+      }
+      return this.monitorExecutor.testConnection(encryptedConfig)
     })
   }
 

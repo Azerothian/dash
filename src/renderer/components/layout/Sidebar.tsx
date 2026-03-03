@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   Bell,
   Clock,
+  Radio,
   Settings,
 } from 'lucide-react'
 import { useUiStore } from '../../stores/ui-store'
@@ -13,6 +14,7 @@ const navItems = [
   { path: '/dashboard', label: 'Dashboards', icon: LayoutDashboard },
   { path: '/sensors', label: 'Sensors', icon: Activity },
   { path: '/alerts', label: 'Alerts', icon: AlertTriangle },
+  { path: '/monitors', label: 'Monitors', icon: Radio },
   { path: '/notifications', label: 'Notifications', icon: Bell },
   { path: '/cron', label: 'Cron Tasks', icon: Clock },
   { path: '/settings', label: 'Settings', icon: Settings },

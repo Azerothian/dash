@@ -1,43 +1,36 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
-  Activity,
+  Radio,
   Plus,
   Play,
   Trash2,
   Edit2,
-  Eye,
   Loader2,
   CheckCircle,
   XCircle,
 } from 'lucide-react'
-import { useSensors, useDeleteSensor, useRunSensor } from '../hooks/useSensors'
-import { SensorForm } from '../components/sensor/SensorForm'
-import { SensorDataView } from '../components/sensor/SensorDataView'
+import { useMonitors, useDeleteMonitor, useRunMonitor } from '../hooks/useMonitors'
+import { MonitorForm } from '../components/monitor/MonitorForm'
 import { ConfirmDialog } from '../components/shared/ConfirmDialog'
-import type { Sensor, ExecutionType } from '@shared/entities'
+import type { Monitor, MonitorType } from '@shared/entities'
 
-export function SensorsPage() {
+export function MonitorsPage() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { data: sensors, isLoading } = useSensors()
-  const deleteMutation = useDeleteSensor()
-  const runMutation = useRunSensor()
+  const { data: monitors, isLoading } = useMonitors()
+  const deleteMutation = useDeleteMonitor()
+  const runMutation = useRunMonitor()
   const [showForm, setShowForm] = useState(!!id)
-  const [showData, setShowData] = useState<string | null>(null)
-  const [deleteTarget, setDeleteTarget] = useState<Sensor | null>(null)
-
-  if (showData) {
-    return <SensorDataView sensorId={showData} onClose={() => setShowData(null)} />
-  }
+  const [deleteTarget, setDeleteTarget] = useState<Monitor | null>(null)
 
   if (id || showForm) {
     return (
-      <SensorForm
-        sensorId={id === 'new' ? undefined : id}
+      <MonitorForm
+        monitorId={id === 'new' ? undefined : id}
         onClose={() => {
           setShowForm(false)
-          navigate('/sensors')
+          navigate('/monitors')
         }}
       />
     )
@@ -55,22 +48,22 @@ export function SensorsPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Activity className="h-6 w-6" />
-          <h1 className="text-2xl font-semibold">Sensors</h1>
+          <Radio className="h-6 w-6" />
+          <h1 className="text-2xl font-semibold">Monitors</h1>
         </div>
         <button
-          onClick={() => navigate('/sensors/new')}
+          onClick={() => navigate('/monitors/new')}
           className="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90"
         >
           <Plus className="h-4 w-4" />
-          New Sensor
+          New Monitor
         </button>
       </div>
 
-      {!sensors?.length ? (
+      {!monitors?.length ? (
         <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-          <Activity className="mb-4 h-12 w-12 opacity-20" />
-          <p>No sensors yet. Create one to start collecting data.</p>
+          <Radio className="mb-4 h-12 w-12 opacity-20" />
+          <p>No monitors yet. Create one to start monitoring external services.</p>
         </div>
       ) : (
         <div className="rounded-lg border border-border">
@@ -85,21 +78,14 @@ export function SensorsPage() {
               </tr>
             </thead>
             <tbody>
-              {sensors.map((sensor) => (
-                <SensorRow
-                  key={sensor.id}
-                  sensor={sensor}
-                  onEdit={() => {
-                    if (sensor.monitor_id) {
-                      navigate(`/monitors/${sensor.monitor_id}`)
-                    } else {
-                      navigate(`/sensors/${sensor.id}`)
-                    }
-                  }}
-                  onViewData={() => setShowData(sensor.id)}
-                  onRun={() => runMutation.mutate(sensor.id)}
-                  onDelete={() => setDeleteTarget(sensor)}
-                  isRunning={runMutation.isPending && runMutation.variables === sensor.id}
+              {monitors.map((monitor) => (
+                <MonitorRow
+                  key={monitor.id}
+                  monitor={monitor}
+                  onEdit={() => navigate(`/monitors/${monitor.id}`)}
+                  onRun={() => runMutation.mutate(monitor.id)}
+                  onDelete={() => setDeleteTarget(monitor)}
+                  isRunning={runMutation.isPending && runMutation.variables === monitor.id}
                 />
               ))}
             </tbody>
@@ -109,8 +95,8 @@ export function SensorsPage() {
 
       {deleteTarget && (
         <ConfirmDialog
-          title="Delete Sensor"
-          message={`Delete sensor "${deleteTarget.name}"?`}
+          title="Delete Monitor"
+          message={`Delete monitor "${deleteTarget.name}"? This will also delete all managed sensors and their data.`}
           onConfirm={() => {
             deleteMutation.mutate(deleteTarget.id)
             setDeleteTarget(null)
@@ -123,49 +109,36 @@ export function SensorsPage() {
   )
 }
 
-function SensorRow({
-  sensor,
+const typeLabels: Record<MonitorType, string> = {
+  cloudflare_pages: 'Cloudflare Pages',
+}
+
+function MonitorRow({
+  monitor,
   onEdit,
-  onViewData,
   onRun,
   onDelete,
   isRunning,
 }: {
-  sensor: Sensor
+  monitor: Monitor
   onEdit: () => void
-  onViewData: () => void
   onRun: () => void
   onDelete: () => void
   isRunning: boolean
 }) {
-  const typeLabels: Record<ExecutionType, string> = {
-    typescript: 'TS',
-    bash: 'Bash',
-    docker: 'Docker',
-    powershell: 'PS',
-    file: 'File',
-  }
-
   return (
     <tr className="border-b border-border last:border-0 hover:bg-muted/30">
-      <td className="px-4 py-3 font-medium">
-        <span className="flex items-center gap-2">
-          {sensor.name}
-          {sensor.monitor_id && (
-            <span className="rounded bg-primary/10 px-1.5 py-0.5 text-xs text-primary">Managed</span>
-          )}
-        </span>
-      </td>
+      <td className="px-4 py-3 font-medium">{monitor.name}</td>
       <td className="px-4 py-3">
         <span className="rounded bg-secondary px-2 py-0.5 text-xs">
-          {typeLabels[sensor.execution_type]}
+          {typeLabels[monitor.monitor_type] || monitor.monitor_type}
         </span>
       </td>
       <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
-        {sensor.cron_expression}
+        {monitor.cron_expression}
       </td>
       <td className="px-4 py-3">
-        {sensor.enabled ? (
+        {monitor.enabled ? (
           <span className="flex items-center gap-1 text-alert-ok">
             <CheckCircle className="h-3.5 w-3.5" />
             Active
@@ -179,13 +152,6 @@ function SensorRow({
       </td>
       <td className="px-4 py-3">
         <div className="flex items-center justify-end gap-1">
-          <button
-            onClick={onViewData}
-            className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-            title="View Data"
-          >
-            <Eye className="h-4 w-4" />
-          </button>
           <button
             onClick={onRun}
             disabled={isRunning}

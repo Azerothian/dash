@@ -102,10 +102,10 @@ test.describe('Dashboards', () => {
     if (!dashboardId) return
 
     await goToDashboards()
-    page.once('dialog', async (dialog) => {
-      await dialog.accept()
-    })
     await page.locator('button[title="Delete dashboard"]').click()
+    await page.waitForTimeout(300)
+    await expect(page.locator('h3', { hasText: 'Delete Dashboard' })).toBeVisible()
+    await page.locator('button', { hasText: 'Delete' }).last().click()
     await page.waitForTimeout(1000)
 
     const dashboards = await ipc.listDashboards()

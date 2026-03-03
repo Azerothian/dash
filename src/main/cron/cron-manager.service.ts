@@ -5,6 +5,8 @@ import { SensorService } from '../sensor/sensor.service.js'
 import { ExecutorService } from '../sensor/executor.service.js'
 import { AlertService } from '../alert/alert.service.js'
 import { NotificationService } from '../notification/notification.service.js'
+import { MonitorService } from '../monitor/monitor.service.js'
+import { MonitorExecutorService } from '../monitor/monitor-executor.service.js'
 import { DatabaseService } from '../database/database.service.js'
 import { BrowserWindow } from 'electron'
 import { IPC_CHANNELS } from '@shared/ipc-channels'
@@ -33,6 +35,8 @@ export class CronManagerService implements OnModuleInit {
     @Inject(ExecutorService) private executor: ExecutorService,
     @Inject(AlertService) private alerts: AlertService,
     @Inject(NotificationService) private notifications: NotificationService,
+    @Inject(MonitorService) private monitors: MonitorService,
+    @Inject(MonitorExecutorService) private monitorExecutor: MonitorExecutorService,
     @Inject(DatabaseService) private db: DatabaseService,
   ) {}
 
@@ -87,6 +91,21 @@ export class CronManagerService implements OnModuleInit {
           type: 'notification',
           cronExpression: notif.cron_expression,
           entityId: notif.id,
+          enabled: true,
+        })
+      }
+    }
+
+    // Register monitor crons
+    const monitorList = await this.monitors.list()
+    for (const monitor of monitorList) {
+      if (monitor.enabled && monitor.cron_expression) {
+        this.registerTask({
+          id: `monitor:${monitor.id}`,
+          name: `Monitor: ${monitor.name}`,
+          type: 'monitor',
+          cronExpression: monitor.cron_expression,
+          entityId: monitor.id,
           enabled: true,
         })
       }
@@ -160,6 +179,9 @@ export class CronManagerService implements OnModuleInit {
         case 'notification':
           await this.runNotification(task.entityId)
           break
+        case 'monitor':
+          await this.runMonitor(task.entityId)
+          break
       }
       task.lastError = null
     } catch (err) {
@@ -201,6 +223,13 @@ export class CronManagerService implements OnModuleInit {
 
   private async runNotification(notificationId: string): Promise<void> {
     await this.notifications.dispatchForAlerts(notificationId)
+  }
+
+  private async runMonitor(monitorId: string): Promise<void> {
+    const monitor = await this.monitors.get(monitorId)
+    if (!monitor) return
+    await this.monitorExecutor.execute(monitor)
+    this.broadcast(IPC_CHANNELS.SENSOR_DATA_UPDATED, monitorId)
   }
 
   private async runRetention(): Promise<void> {
@@ -302,6 +331,20 @@ export class CronManagerService implements OnModuleInit {
             name: `Notification: ${notif.name}`,
             type: 'notification',
             cronExpression: notif.cron_expression,
+            entityId,
+            enabled: true,
+          })
+        }
+        break
+      }
+      case 'monitor': {
+        const monitor = await this.monitors.get(entityId)
+        if (monitor?.enabled && monitor.cron_expression) {
+          this.registerTask({
+            id: taskId,
+            name: `Monitor: ${monitor.name}`,
+            type: 'monitor',
+            cronExpression: monitor.cron_expression,
             entityId,
             enabled: true,
           })

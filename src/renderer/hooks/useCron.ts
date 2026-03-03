@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { IPC_CHANNELS } from '@shared/ipc-channels'
-import type { CronTask } from '@shared/entities'
+import type { CronTask, CronExecutionLog } from '@shared/entities'
 
 export function useCronTasks() {
   const qc = useQueryClient()
@@ -34,5 +34,13 @@ export function useToggleCron() {
     mutationFn: ({ taskId, enabled }: { taskId: string; enabled: boolean }) =>
       window.api.invoke(IPC_CHANNELS.CRON_TOGGLE, taskId, enabled),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['cron-tasks'] }),
+  })
+}
+
+export function useCronExecutionLog(taskId: string | null, limit = 50) {
+  return useQuery<CronExecutionLog[]>({
+    queryKey: ['cron-execution-log', taskId, limit],
+    queryFn: () => window.api.invoke(IPC_CHANNELS.CRON_EXECUTION_LOG, taskId, limit),
+    enabled: !!taskId,
   })
 }

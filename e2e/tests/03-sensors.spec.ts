@@ -116,19 +116,19 @@ test.describe('Sensors', () => {
   })
 
   test('delete sensor - dismiss keeps sensor', async () => {
-    page.once('dialog', async (dialog) => {
-      await dialog.dismiss()
-    })
     await page.locator('button[title="Delete"]').first().click()
+    await page.waitForTimeout(300)
+    await expect(page.locator('h3', { hasText: 'Delete Sensor' })).toBeVisible()
+    await page.locator('button', { hasText: 'Cancel' }).click()
     await page.waitForTimeout(500)
     await expect(page.locator('td', { hasText: 'E2E Test Sensor' })).toBeVisible()
   })
 
   test('delete sensor - accept removes sensor', async () => {
-    page.once('dialog', async (dialog) => {
-      await dialog.accept()
-    })
     await page.locator('button[title="Delete"]').first().click()
+    await page.waitForTimeout(300)
+    await expect(page.locator('h3', { hasText: 'Delete Sensor' })).toBeVisible()
+    await page.locator('button', { hasText: 'Delete' }).last().click()
     await page.waitForTimeout(1000)
 
     const sensors = await ipc.listSensors()

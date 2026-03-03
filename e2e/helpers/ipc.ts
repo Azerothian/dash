@@ -60,6 +60,14 @@ export class IpcHelper {
   toggleCron(taskId: string, enabled: boolean) { return this.invoke<void>('cron:toggle', { taskId, enabled }) }
   forceRunCron(taskId: string) { return this.invoke<unknown>('cron:force-run', taskId) }
 
+  // Monitors
+  listMonitors() { return this.invoke<unknown[]>('monitor:list') }
+  getMonitor(id: string) { return this.invoke<unknown>('monitor:get', id) }
+  createMonitor(data: Record<string, unknown>) { return this.invoke<{ id: string }>('monitor:create', data) }
+  updateMonitor(data: Record<string, unknown>) { return this.invoke<unknown>('monitor:update', data) }
+  deleteMonitor(id: string) { return this.invoke<void>('monitor:delete', id) }
+  runMonitor(id: string) { return this.invoke<unknown>('monitor:run', id) }
+
   // Settings
   getSettings() { return this.invoke<Record<string, unknown>>('settings:get-all') }
   setSetting(key: string, value: unknown) { return this.invoke<void>('settings:set', { key, value }) }

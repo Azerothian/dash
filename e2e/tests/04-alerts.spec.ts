@@ -110,10 +110,10 @@ test.describe('Alerts', () => {
   })
 
   test('delete alert - accept removes it', async () => {
-    page.once('dialog', async (dialog) => {
-      await dialog.accept()
-    })
     await page.locator('button[title="Delete"]').first().click()
+    await page.waitForTimeout(300)
+    await expect(page.locator('h3', { hasText: 'Delete Alert' })).toBeVisible()
+    await page.locator('button', { hasText: 'Delete' }).last().click()
     await page.waitForTimeout(1000)
 
     const alerts = await ipc.listAlerts()

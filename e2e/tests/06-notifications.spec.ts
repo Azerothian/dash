@@ -78,10 +78,10 @@ test.describe('Notifications', () => {
 
   test('delete notification - accept removes it', async () => {
     await goToNotifications()
-    page.once('dialog', async (dialog) => {
-      await dialog.accept()
-    })
     await page.locator('button[title="Delete"]').first().click()
+    await page.waitForTimeout(300)
+    await expect(page.locator('h3', { hasText: 'Delete Notification' })).toBeVisible()
+    await page.locator('button', { hasText: 'Delete' }).last().click()
     await page.waitForTimeout(1000)
 
     const notifications = await ipc.listNotifications()

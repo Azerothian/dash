@@ -5,10 +5,11 @@ import { SensorModule } from '../sensor/sensor.module.js'
 import { AlertModule } from '../alert/alert.module.js'
 import { DashboardModule } from '../dashboard/dashboard.module.js'
 import { NotificationModule } from '../notification/notification.module.js'
+import { MonitorModule } from '../monitor/monitor.module.js'
 import { CronModule } from '../cron/cron.module.js'
 
 @Module({
-  imports: [SettingsModule, SensorModule, AlertModule, DashboardModule, NotificationModule, CronModule],
+  imports: [SettingsModule, SensorModule, AlertModule, DashboardModule, NotificationModule, MonitorModule, CronModule],
   providers: [IpcBridgeService],
   exports: [IpcBridgeService],
 })

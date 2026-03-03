@@ -32,11 +32,11 @@ export function CustomPanel({ panel }: CustomPanelProps) {
   const title = (panel.panel_config?.title as string) || ''
 
   return (
-    <div className="flex h-full flex-col overflow-auto">
+    <div className="flex h-full flex-col overflow-hidden">
       {title && (
-        <div className="px-2 pt-1 text-xs font-medium text-muted-foreground truncate">{title}</div>
+        <div className="shrink-0 border-b border-border px-3 py-1.5 text-xs font-medium text-muted-foreground truncate">{title}</div>
       )}
-      <div className="flex-1 p-2 text-sm">
+      <div className="flex-1 overflow-auto p-2 text-sm">
         <pre className="whitespace-pre-wrap font-mono text-xs">{rendered}</pre>
       </div>
     </div>

@@ -63,6 +63,15 @@ export const IPC_CHANNELS = {
   SENSOR_DATA_LIST: 'sensor-data:list',
   SENSOR_DATA_AGGREGATED: 'sensor-data:aggregated',
 
+  // Monitor channels
+  MONITOR_LIST: 'monitor:list',
+  MONITOR_GET: 'monitor:get',
+  MONITOR_CREATE: 'monitor:create',
+  MONITOR_UPDATE: 'monitor:update',
+  MONITOR_DELETE: 'monitor:delete',
+  MONITOR_RUN: 'monitor:run',
+  MONITOR_TEST_CONNECTION: 'monitor:test-connection',
+
   // Dialog channels
   DIALOG_OPEN_FILE: 'dialog:open-file',
 } as const

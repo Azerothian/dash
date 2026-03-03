@@ -18,17 +18,6 @@ export class NavigationHelper {
     })
   }
 
-  /** Set up a dialog handler before triggering a confirm() dialog */
-  handleConfirmDialog(accept: boolean) {
-    this.page.once('dialog', async (dialog) => {
-      if (accept) {
-        await dialog.accept()
-      } else {
-        await dialog.dismiss()
-      }
-    })
-  }
-
   /** Get the page heading text */
   async getHeading(): Promise<string> {
     return this.page.locator('h1').first().innerText()

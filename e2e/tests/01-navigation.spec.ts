@@ -40,15 +40,15 @@ test.describe('Navigation', () => {
     expect(title).toBe('Dash')
   })
 
-  test('sidebar shows all 6 nav items', async () => {
+  test('sidebar shows all 7 nav items', async () => {
     const page = await app.firstWindow()
     const navButtons = page.locator('aside nav button')
-    await expect(navButtons).toHaveCount(6)
+    await expect(navButtons).toHaveCount(7)
   })
 
   test('sidebar has correct nav labels', async () => {
     const page = await app.firstWindow()
-    const expectedLabels = ['Dashboards', 'Sensors', 'Alerts', 'Notifications', 'Cron Tasks', 'Settings']
+    const expectedLabels = ['Dashboards', 'Sensors', 'Monitors', 'Alerts', 'Notifications', 'Cron Tasks', 'Settings']
     for (const label of expectedLabels) {
       await expect(page.locator('aside nav button', { hasText: label })).toBeVisible()
     }
@@ -59,6 +59,13 @@ test.describe('Navigation', () => {
     await page.locator('aside button', { hasText: 'Sensors' }).click()
     await page.waitForTimeout(500)
     await expect(page.locator('h1', { hasText: 'Sensors' })).toBeVisible()
+  })
+
+  test('navigate to Monitors page', async () => {
+    const page = await app.firstWindow()
+    await page.locator('aside button', { hasText: 'Monitors' }).click()
+    await page.waitForTimeout(500)
+    await expect(page.locator('h1', { hasText: 'Monitors' })).toBeVisible()
   })
 
   test('navigate to Alerts page', async () => {

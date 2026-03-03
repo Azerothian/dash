@@ -53,6 +53,22 @@ export function makeNotification(overrides: Record<string, unknown> = {}) {
   }
 }
 
+export function makeMonitor(overrides: Record<string, unknown> = {}) {
+  return {
+    name: `Test Monitor ${uid()}`,
+    description: 'E2E test monitor',
+    monitor_type: 'cloudflare_pages',
+    config: {
+      api_token: 'test-token-encrypted',
+      account_id: 'test-account-id',
+      excluded_projects: [],
+    },
+    cron_expression: '*/5 * * * *',
+    enabled: true,
+    ...overrides,
+  }
+}
+
 export function makeDashboard(overrides: Record<string, unknown> = {}) {
   return {
     name: `Test Dashboard ${uid()}`,

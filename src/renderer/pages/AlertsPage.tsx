@@ -22,6 +22,7 @@ import {
   useAlertHistory,
 } from '../hooks/useAlerts'
 import { AlertForm } from '../components/alert/AlertForm'
+import { ConfirmDialog } from '../components/shared/ConfirmDialog'
 import type { Alert, AlertState } from '@shared/entities'
 
 const STATE_STYLES: Record<AlertState, { bg: string; text: string; label: string }> = {
@@ -45,6 +46,7 @@ export function AlertsPage() {
   const [showHistory, setShowHistory] = useState<string | null>(null)
   const [ackDialog, setAckDialog] = useState<string | null>(null)
   const [ackMessage, setAckMessage] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState<Alert | null>(null)
 
   if (id) {
     return (
@@ -183,7 +185,7 @@ export function AlertsPage() {
                         <Edit2 className="h-4 w-4" />
                       </button>
                       <button
-                        onClick={() => { if (confirm(`Delete alert "${alert.name}"?`)) deleteMutation.mutate(alert.id) }}
+                        onClick={() => setDeleteTarget(alert)}
                         className="rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                         title="Delete"
                       >
@@ -196,6 +198,20 @@ export function AlertsPage() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {/* Delete Confirm Dialog */}
+      {deleteTarget && (
+        <ConfirmDialog
+          title="Delete Alert"
+          message={`Delete alert "${deleteTarget.name}"?`}
+          onConfirm={() => {
+            deleteMutation.mutate(deleteTarget.id)
+            setDeleteTarget(null)
+          }}
+          onCancel={() => setDeleteTarget(null)}
+          isPending={deleteMutation.isPending}
+        />
       )}
 
       {/* Ack Dialog */}

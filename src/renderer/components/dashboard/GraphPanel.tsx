@@ -91,7 +91,7 @@ export function GraphPanel({ panel }: GraphPanelProps) {
   return (
     <div className="flex h-full flex-col">
       {title && (
-        <div className="px-2 pt-1 text-xs font-medium text-muted-foreground truncate">{title}</div>
+        <div className="shrink-0 border-b border-border px-3 py-1.5 text-xs font-medium text-muted-foreground truncate">{title}</div>
       )}
       <div className="flex-1 min-h-0">
         <ResponsiveContainer width="100%" height="100%">
