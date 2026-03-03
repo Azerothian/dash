@@ -49,7 +49,7 @@ type TargetMode = 'sensor' | 'tag'
 export function RuleRow({ rule, onChange, onRemove }: RuleRowProps) {
   const { data: sensors = [] } = useSensors()
 
-  const targetMode: TargetMode = rule.tag ? 'tag' : 'sensor'
+  const targetMode: TargetMode = rule.tag !== undefined ? 'tag' : 'sensor'
 
   // Collect all unique tags from sensors
   const allTags = Array.from(new Set(sensors.flatMap((s: Sensor) => s.tags || [])))

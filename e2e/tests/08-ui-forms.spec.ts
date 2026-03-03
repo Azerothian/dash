@@ -344,17 +344,24 @@ test.describe('Alert Rule UI Behaviors', () => {
     await page.locator('button', { hasText: 'Add Rule' }).click()
     await page.waitForTimeout(300)
 
-    // Click "Tag" toggle button
-    await page.locator('button', { hasText: 'Tag' }).click()
-    await page.waitForTimeout(300)
+    // Click "Tag" toggle button inside the rule row — it's the second button in the toggle group
+    const ruleRow = page.locator('.space-y-2.rounded-md.border').first()
+    const tagButton = ruleRow.locator('.flex.rounded-md.border.overflow-hidden button').nth(1)
+    await expect(tagButton).toHaveText('Tag')
+    await tagButton.click()
+    await page.waitForTimeout(500)
+
+    // Verify tag mode is active — label should say "Tag"
+    await expect(ruleRow.locator('label', { hasText: 'Tag' })).toBeVisible()
 
     // Select tag from dropdown
-    const tagSelect = page.locator('select').filter({ hasText: 'Select tag...' })
+    const tagSelect = ruleRow.locator('label', { hasText: 'Tag' }).locator('..').locator('select')
     await tagSelect.selectOption('ui-test-tag')
     await page.waitForTimeout(300)
 
     // Column dropdown should show 'value' (common column)
-    const columnSelect = page.locator('select').filter({ hasText: 'Select column...' })
+    const columnLabel = ruleRow.locator('label', { hasText: 'Column' })
+    const columnSelect = columnLabel.locator('..').locator('select')
     const columnOptions = await columnSelect.locator('option').allTextContents()
     expect(columnOptions).toContain('value')
 
