@@ -68,6 +68,13 @@ export class IpcHelper {
   deleteMonitor(id: string) { return this.invoke<void>('monitor:delete', id) }
   runMonitor(id: string) { return this.invoke<unknown>('monitor:run', id) }
 
+  // Credentials
+  listCredentials() { return this.invoke<unknown[]>('credential:list') }
+  getCredential(id: string) { return this.invoke<unknown>('credential:get', id) }
+  createCredential(data: Record<string, unknown>) { return this.invoke<{ id: string }>('credential:create', data) }
+  updateCredential(data: Record<string, unknown>) { return this.invoke<unknown>('credential:update', data) }
+  deleteCredential(id: string) { return this.invoke<void>('credential:delete', id) }
+
   // Settings
   getSettings() { return this.invoke<Record<string, unknown>>('settings:get-all') }
   setSetting(key: string, value: unknown) { return this.invoke<void>('settings:set', { key, value }) }

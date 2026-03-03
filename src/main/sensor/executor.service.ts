@@ -26,12 +26,13 @@ export class ExecutorService {
     columns: ColumnDefinition[],
     envVars: Record<string, string>,
     scriptFilePath?: string,
+    credentialEnvVars?: Record<string, string>,
   ): Promise<ExecutionResult> {
     const start = Date.now()
     try {
-      // Merge global env vars (sensor-specific wins on conflict)
+      // Merge global env vars → credential env vars → sensor-specific (highest priority wins)
       const globalVars = await this.settings.get('global_env_vars')
-      const mergedEnv = { ...globalVars, ...envVars }
+      const mergedEnv = { ...globalVars, ...credentialEnvVars, ...envVars }
 
       let rawOutput: string
       switch (type) {

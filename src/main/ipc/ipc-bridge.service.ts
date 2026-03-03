@@ -10,7 +10,8 @@ import { NotificationService } from '../notification/notification.service.js'
 import { CronManagerService } from '../cron/cron-manager.service.js'
 import { MonitorService } from '../monitor/monitor.service.js'
 import { MonitorExecutorService } from '../monitor/monitor-executor.service.js'
-import type { Settings, CreateSensor, UpdateSensor, CreateAlert, UpdateAlert, CreateDashboard, UpdateDashboard, CreatePanel, UpdatePanel, GridstackConfig, CreateNotification, UpdateNotification, AggregationFunction, CreateMonitor, UpdateMonitor, CloudflarePagesConfig } from '@shared/entities'
+import { CredentialService } from '../credential/credential.service.js'
+import type { Settings, CreateSensor, UpdateSensor, CreateAlert, UpdateAlert, CreateDashboard, UpdateDashboard, CreatePanel, UpdatePanel, GridstackConfig, CreateNotification, UpdateNotification, AggregationFunction, CreateMonitor, UpdateMonitor, CloudflarePagesConfig, CreateCredential, UpdateCredential, CloudflareCredentialConfig } from '@shared/entities'
 
 @Injectable()
 export class IpcBridgeService implements OnModuleInit {
@@ -24,6 +25,7 @@ export class IpcBridgeService implements OnModuleInit {
     @Inject(CronManagerService) private cron: CronManagerService,
     @Inject(MonitorService) private monitors: MonitorService,
     @Inject(MonitorExecutorService) private monitorExecutor: MonitorExecutorService,
+    @Inject(CredentialService) private credentials: CredentialService,
   ) {}
 
   onModuleInit() {
@@ -34,6 +36,7 @@ export class IpcBridgeService implements OnModuleInit {
     this.registerNotificationHandlers()
     this.registerCronHandlers()
     this.registerMonitorHandlers()
+    this.registerCredentialHandlers()
     this.registerDialogHandlers()
   }
 
@@ -245,6 +248,34 @@ export class IpcBridgeService implements OnModuleInit {
       if (!monitor) throw new Error(`Monitor ${id} not found`)
       const config = monitor.config as CloudflarePagesConfig
       return this.monitorExecutor.testConnection(config)
+    })
+  }
+
+  private registerCredentialHandlers() {
+    ipcMain.handle(IPC_CHANNELS.CREDENTIAL_LIST, async () => this.credentials.list())
+    ipcMain.handle(IPC_CHANNELS.CREDENTIAL_GET, async (_event, id: string) => this.credentials.get(id))
+    ipcMain.handle(IPC_CHANNELS.CREDENTIAL_CREATE, async (_event, data: CreateCredential) => {
+      // Encrypt the API token before storing
+      if (data.config && 'api_token' in data.config && data.config.api_token) {
+        (data.config as CloudflareCredentialConfig).api_token = this.monitorExecutor.encryptToken(data.config.api_token)
+      }
+      return this.credentials.create(data)
+    })
+    ipcMain.handle(IPC_CHANNELS.CREDENTIAL_UPDATE, async (_event, data: UpdateCredential) => {
+      // Encrypt new token if provided, otherwise preserve existing encrypted token
+      if (data.config && 'api_token' in data.config && data.config.api_token) {
+        (data.config as CloudflareCredentialConfig).api_token = this.monitorExecutor.encryptToken(data.config.api_token)
+      } else if (data.config) {
+        const existing = await this.credentials.get(data.id)
+        if (existing) {
+          (data.config as CloudflareCredentialConfig).api_token = (existing.config as CloudflareCredentialConfig).api_token
+        }
+      }
+      return this.credentials.update(data)
+    })
+    ipcMain.handle(IPC_CHANNELS.CREDENTIAL_DELETE, async (_event, id: string) => {
+      await this.credentials.delete(id)
+      return { success: true }
     })
   }
 

@@ -257,6 +257,19 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       )
     `)
 
+    // Credentials
+    await this.run(`
+      CREATE TABLE IF NOT EXISTS credential (
+        id VARCHAR PRIMARY KEY,
+        name VARCHAR NOT NULL UNIQUE,
+        credential_type VARCHAR NOT NULL,
+        config JSON NOT NULL,
+        env_var_map JSON NOT NULL DEFAULT '{}',
+        created_at TIMESTAMP DEFAULT current_timestamp,
+        updated_at TIMESTAMP DEFAULT current_timestamp
+      )
+    `)
+
     // Monitors
     await this.run(`
       CREATE TABLE IF NOT EXISTS monitor (
@@ -277,6 +290,9 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
 
     // Add tags column to sensor if missing
     await this.migrateSensorTags()
+
+    // Add credential_id column to monitor if missing
+    await this.migrateMonitorCredentialId()
 
     // Settings
     await this.run(`
@@ -301,6 +317,14 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       await this.all("SELECT tags FROM sensor LIMIT 1")
     } catch {
       await this.run("ALTER TABLE sensor ADD COLUMN tags JSON DEFAULT '[]'")
+    }
+  }
+
+  private async migrateMonitorCredentialId(): Promise<void> {
+    try {
+      await this.all("SELECT credential_id FROM monitor LIMIT 1")
+    } catch {
+      await this.run("ALTER TABLE monitor ADD COLUMN credential_id VARCHAR DEFAULT NULL")
     }
   }
 }

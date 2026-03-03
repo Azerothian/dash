@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { ArrowLeft, Save, Loader2, Wifi, WifiOff, X, Plus, ChevronDown } from 'lucide-react'
 import { useMonitor, useCreateMonitor, useUpdateMonitor, useTestMonitorConnection, useDiscoverMonitorProjects } from '../../hooks/useMonitors'
+import { useCredentials } from '../../hooks/useCredentials'
 import { useSensors } from '../../hooks/useSensors'
 import { CronInput } from '../shared/CronInput'
 import type { MonitorType, CloudflarePagesConfig, CloudflarePagesProjectConfig } from '@shared/entities'
@@ -17,6 +18,7 @@ export function MonitorForm({ monitorId, onClose }: MonitorFormProps) {
   const updateMutation = useUpdateMonitor()
   const testMutation = useTestMonitorConnection()
   const { data: discovered } = useDiscoverMonitorProjects(monitorId)
+  const { data: allCredentials } = useCredentials()
 
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -24,6 +26,7 @@ export function MonitorForm({ monitorId, onClose }: MonitorFormProps) {
   const [apiToken, setApiToken] = useState('')
   const [accountId, setAccountId] = useState('')
   const [projects, setProjects] = useState<CloudflarePagesProjectConfig[]>([])
+  const [credentialId, setCredentialId] = useState<string | null>(null)
   const [cronExpression, setCronExpression] = useState('*/5 * * * *')
   const [enabled, setEnabled] = useState(true)
 
@@ -39,6 +42,7 @@ export function MonitorForm({ monitorId, onClose }: MonitorFormProps) {
       setMonitorType(monitor.monitor_type)
       setCronExpression(monitor.cron_expression)
       setEnabled(monitor.enabled)
+      setCredentialId(monitor.credential_id || null)
       if (monitor.monitor_type === 'cloudflare_pages') {
         const cfg = monitor.config as CloudflarePagesConfig
         setAccountId(cfg.account_id || '')
@@ -131,6 +135,7 @@ export function MonitorForm({ monitorId, onClose }: MonitorFormProps) {
       description,
       monitor_type: monitorType,
       config,
+      credential_id: credentialId,
       cron_expression: cronExpression,
       enabled,
     }
@@ -177,7 +182,7 @@ export function MonitorForm({ monitorId, onClose }: MonitorFormProps) {
         </div>
         <button
           onClick={handleSubmit}
-          disabled={isPending || !name || !accountId || (!monitorId && !apiToken)}
+          disabled={isPending || !name || (!credentialId && !accountId) || (!credentialId && !monitorId && !apiToken)}
           className="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
         >
           {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
@@ -225,52 +230,91 @@ export function MonitorForm({ monitorId, onClose }: MonitorFormProps) {
       <div className="space-y-4 rounded-lg border border-border bg-card p-4">
         <h2 className="text-lg font-medium">Connection Settings</h2>
 
-        <div>
-          <label className="block text-sm font-medium mb-1">API Token</label>
-          <input
-            type="password"
-            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            value={apiToken}
-            onChange={(e) => setApiToken(e.target.value)}
-            placeholder={monitorId ? '(unchanged - enter new token to update)' : 'Cloudflare API Token'}
-          />
-        </div>
+        {/* Credential selector */}
+        {(() => {
+          const cfCredentials = allCredentials?.filter((c) => c.credential_type === 'cloudflare') || []
+          return cfCredentials.length > 0 ? (
+            <div>
+              <label className="block text-sm font-medium mb-1">Credential</label>
+              <select
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={credentialId || ''}
+                onChange={(e) => {
+                  const val = e.target.value
+                  setCredentialId(val || null)
+                  if (val) {
+                    // When credential is selected, clear inline fields
+                    setApiToken('')
+                    setAccountId('')
+                  }
+                }}
+              >
+                <option value="">Enter manually</option>
+                {cfCredentials.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+          ) : null
+        })()}
 
-        <div>
-          <label className="block text-sm font-medium mb-1">Account ID</label>
-          <input
-            type="text"
-            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono"
-            value={accountId}
-            onChange={(e) => setAccountId(e.target.value)}
-            placeholder="Cloudflare Account ID"
-          />
-        </div>
+        {/* Inline token/account fields - hidden when credential selected */}
+        {!credentialId && (
+          <>
+            <div>
+              <label className="block text-sm font-medium mb-1">API Token</label>
+              <input
+                type="password"
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={apiToken}
+                onChange={(e) => setApiToken(e.target.value)}
+                placeholder={monitorId ? '(unchanged - enter new token to update)' : 'Cloudflare API Token'}
+              />
+            </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleTestConnection}
-            disabled={testMutation.isPending || !apiToken || !accountId}
-            className="flex items-center gap-2 rounded-md bg-secondary px-4 py-2 text-sm hover:bg-secondary/80 disabled:opacity-50"
-          >
-            {testMutation.isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Wifi className="h-4 w-4" />
-            )}
-            Test Connection
-          </button>
-          {testMutation.isSuccess && testMutation.data?.success && (
-            <span className="flex items-center gap-1 text-sm text-alert-ok">
-              <Wifi className="h-4 w-4" /> Connected
-            </span>
-          )}
-          {testMutation.isSuccess && !testMutation.data?.success && (
-            <span className="flex items-center gap-1 text-sm text-destructive">
-              <WifiOff className="h-4 w-4" /> {testMutation.data?.error || 'Failed'}
-            </span>
-          )}
-        </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Account ID</label>
+              <input
+                type="text"
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono"
+                value={accountId}
+                onChange={(e) => setAccountId(e.target.value)}
+                placeholder="Cloudflare Account ID"
+              />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleTestConnection}
+                disabled={testMutation.isPending || !apiToken || !accountId}
+                className="flex items-center gap-2 rounded-md bg-secondary px-4 py-2 text-sm hover:bg-secondary/80 disabled:opacity-50"
+              >
+                {testMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Wifi className="h-4 w-4" />
+                )}
+                Test Connection
+              </button>
+              {testMutation.isSuccess && testMutation.data?.success && (
+                <span className="flex items-center gap-1 text-sm text-alert-ok">
+                  <Wifi className="h-4 w-4" /> Connected
+                </span>
+              )}
+              {testMutation.isSuccess && !testMutation.data?.success && (
+                <span className="flex items-center gap-1 text-sm text-destructive">
+                  <WifiOff className="h-4 w-4" /> {testMutation.data?.error || 'Failed'}
+                </span>
+              )}
+            </div>
+          </>
+        )}
+
+        {credentialId && (
+          <p className="text-sm text-muted-foreground">
+            Using stored credential. Token and Account ID are managed in Settings &gt; Credentials.
+          </p>
+        )}
       </div>
 
       <div className="space-y-4 rounded-lg border border-border bg-card p-4">

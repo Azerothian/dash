@@ -91,6 +91,19 @@ export function makeMonitor(overrides: Record<string, unknown> = {}) {
   }
 }
 
+export function makeCredential(overrides: Record<string, unknown> = {}) {
+  return {
+    name: `Test Credential ${uid()}`,
+    credential_type: 'cloudflare',
+    config: {
+      api_token: 'test-token-for-e2e',
+      account_id: 'test-account-id',
+    },
+    env_var_map: {},
+    ...overrides,
+  }
+}
+
 export function makeDashboard(overrides: Record<string, unknown> = {}) {
   return {
     name: `Test Dashboard ${uid()}`,

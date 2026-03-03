@@ -6,9 +6,10 @@ import { AlertModule } from './alert/alert.module.js'
 import { DashboardModule } from './dashboard/dashboard.module.js'
 import { NotificationModule } from './notification/notification.module.js'
 import { CronModule } from './cron/cron.module.js'
+import { CredentialModule } from './credential/credential.module.js'
 import { IpcModule } from './ipc/ipc.module.js'
 
 @Module({
-  imports: [DatabaseModule, SettingsModule, SensorModule, AlertModule, DashboardModule, NotificationModule, CronModule, IpcModule],
+  imports: [DatabaseModule, SettingsModule, SensorModule, AlertModule, DashboardModule, NotificationModule, CronModule, CredentialModule, IpcModule],
 })
 export class AppModule {}

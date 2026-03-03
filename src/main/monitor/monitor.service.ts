@@ -28,13 +28,14 @@ export class MonitorService {
     const id = uuidv4()
     const now = new Date().toISOString()
     await this.db.run(
-      `INSERT INTO monitor (id, name, description, monitor_type, config, cron_expression, enabled, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO monitor (id, name, description, monitor_type, config, credential_id, cron_expression, enabled, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       id,
       data.name,
       data.description || '',
       data.monitor_type,
       JSON.stringify(data.config),
+      data.credential_id ?? null,
       data.cron_expression,
       data.enabled ?? true,
       now,
@@ -54,6 +55,7 @@ export class MonitorService {
     if (data.description !== undefined) { fields.push('description = ?'); values.push(data.description) }
     if (data.monitor_type !== undefined) { fields.push('monitor_type = ?'); values.push(data.monitor_type) }
     if (data.config !== undefined) { fields.push('config = ?'); values.push(JSON.stringify(data.config)) }
+    if (data.credential_id !== undefined) { fields.push('credential_id = ?'); values.push(data.credential_id) }
     if (data.cron_expression !== undefined) { fields.push('cron_expression = ?'); values.push(data.cron_expression) }
     if (data.enabled !== undefined) { fields.push('enabled = ?'); values.push(data.enabled) }
 
@@ -83,6 +85,7 @@ export class MonitorService {
       description: (row.description as string) || '',
       monitor_type: row.monitor_type as Monitor['monitor_type'],
       config: typeof row.config === 'string' ? JSON.parse(row.config) : row.config as Monitor['config'],
+      credential_id: (row.credential_id as string) || null,
       cron_expression: row.cron_expression as string,
       enabled: Boolean(row.enabled),
       created_at: String(row.created_at),

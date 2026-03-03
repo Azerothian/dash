@@ -217,6 +217,29 @@ export interface CronExecutionLog {
   executed_at: string
 }
 
+// Credential types
+export type CredentialType = 'cloudflare'
+
+export interface CloudflareCredentialConfig {
+  api_token: string
+  account_id: string
+}
+
+export type CredentialConfig = CloudflareCredentialConfig
+
+export interface Credential {
+  id: string
+  name: string
+  credential_type: CredentialType
+  config: CredentialConfig
+  env_var_map: Record<string, string>
+  created_at: string
+  updated_at: string
+}
+
+export type CreateCredential = Omit<Credential, 'id' | 'created_at' | 'updated_at'>
+export type UpdateCredential = Partial<CreateCredential> & { id: string }
+
 // Monitor types
 export type MonitorType = 'cloudflare_pages'
 
@@ -241,6 +264,7 @@ export interface Monitor {
   description: string
   monitor_type: MonitorType
   config: MonitorConfig
+  credential_id: string | null
   cron_expression: string
   enabled: boolean
   created_at: string

@@ -2,7 +2,8 @@ import { Injectable, Inject } from '@nestjs/common'
 import { safeStorage } from 'electron'
 import { SensorService } from '../sensor/sensor.service.js'
 import { MonitorService } from './monitor.service.js'
-import type { Monitor, CloudflarePagesConfig, CloudflarePagesProjectConfig, ColumnDefinition, Sensor } from '@shared/entities'
+import { CredentialService } from '../credential/credential.service.js'
+import type { Monitor, CloudflarePagesConfig, CloudflarePagesProjectConfig, ColumnDefinition, Sensor, Credential, CloudflareCredentialConfig } from '@shared/entities'
 
 const CLOUDFLARE_PAGES_COLUMNS: ColumnDefinition[] = [
   { name: 'project_name', type: 'VARCHAR' },
@@ -54,7 +55,34 @@ export class MonitorExecutorService {
   constructor(
     @Inject(SensorService) private sensors: SensorService,
     @Inject(MonitorService) private monitors: MonitorService,
+    @Inject(CredentialService) private credentials: CredentialService,
   ) {}
+
+  async resolveConfig(monitor: Monitor): Promise<CloudflarePagesConfig> {
+    if (monitor.credential_id) {
+      const cred = await this.credentials.get(monitor.credential_id)
+      if (!cred) throw new Error(`Credential ${monitor.credential_id} not found`)
+      const credConfig = cred.config as CloudflareCredentialConfig
+      return {
+        ...(monitor.config as CloudflarePagesConfig),
+        api_token: credConfig.api_token,
+        account_id: credConfig.account_id,
+      }
+    }
+    return monitor.config as CloudflarePagesConfig
+  }
+
+  resolveEnvVars(credential: Credential): Record<string, string> {
+    const result: Record<string, string> = {}
+    for (const [field, envName] of Object.entries(credential.env_var_map)) {
+      if (field === 'api_token') {
+        result[envName] = this.decryptToken((credential.config as Record<string, string>)[field])
+      } else {
+        result[envName] = String((credential.config as Record<string, string>)[field])
+      }
+    }
+    return result
+  }
 
   async execute(monitor: Monitor): Promise<void> {
     switch (monitor.monitor_type) {
@@ -226,7 +254,7 @@ export class MonitorExecutorService {
   }
 
   private async executeCloudflarePages(monitor: Monitor): Promise<void> {
-    const config = monitor.config as CloudflarePagesConfig
+    const config = await this.resolveConfig(monitor)
     const apiToken = this.decryptToken(config.api_token)
     const baseUrl = `https://api.cloudflare.com/client/v4/accounts/${config.account_id}`
     const headers = { Authorization: `Bearer ${apiToken}` }

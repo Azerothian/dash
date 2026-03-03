@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
-import { Settings as SettingsIcon, Plus, X, Loader2 } from 'lucide-react'
+import { Settings as SettingsIcon, Plus, X, Loader2, Pencil, Trash2, KeyRound } from 'lucide-react'
 import { useSettings, useSettingsMutation } from '../hooks/useSettings'
+import { useCredentials, useCreateCredential, useUpdateCredential, useDeleteCredential } from '../hooks/useCredentials'
 import { useUiStore } from '../stores/ui-store'
-import type { ThemeSetting, WebhookEndpoint, SmtpConfig } from '@shared/entities'
+import type { ThemeSetting, WebhookEndpoint, SmtpConfig, CredentialType, CloudflareCredentialConfig } from '@shared/entities'
 
 export function SettingsPage() {
   const { data: settings, isLoading } = useSettings()
@@ -102,6 +103,9 @@ export function SettingsPage() {
           mutation.mutate({ key: 'webhook_endpoints', value: endpoints })
         }
       />
+
+      {/* Credentials */}
+      <CredentialsSection />
 
       {/* Global Environment Variables */}
       <EnvVarsSection
@@ -343,6 +347,235 @@ function WebhookSection({
             </button>
           )}
         </div>
+      </div>
+    </section>
+  )
+}
+
+function CredentialsSection() {
+  const { data: credentials, isLoading } = useCredentials()
+  const createMutation = useCreateCredential()
+  const updateMutation = useUpdateCredential()
+  const deleteMutation = useDeleteCredential()
+
+  const [editing, setEditing] = useState<string | null>(null) // credential id or 'new'
+  const [formName, setFormName] = useState('')
+  const [formType, setFormType] = useState<CredentialType>('cloudflare')
+  const [formApiToken, setFormApiToken] = useState('')
+  const [formAccountId, setFormAccountId] = useState('')
+  const [formEnvVarMap, setFormEnvVarMap] = useState<[string, string][]>([])
+
+  const startNew = () => {
+    setEditing('new')
+    setFormName('')
+    setFormType('cloudflare')
+    setFormApiToken('')
+    setFormAccountId('')
+    setFormEnvVarMap([])
+  }
+
+  const startEdit = (cred: { id: string; name: string; credential_type: CredentialType; config: CloudflareCredentialConfig; env_var_map: Record<string, string> }) => {
+    setEditing(cred.id)
+    setFormName(cred.name)
+    setFormType(cred.credential_type)
+    setFormApiToken('')
+    setFormAccountId(cred.config.account_id || '')
+    setFormEnvVarMap(Object.entries(cred.env_var_map || {}))
+  }
+
+  const cancel = () => setEditing(null)
+
+  const handleSave = async () => {
+    const envMap = Object.fromEntries(formEnvVarMap.filter(([k]) => k))
+    if (editing === 'new') {
+      await createMutation.mutateAsync({
+        name: formName,
+        credential_type: formType,
+        config: { api_token: formApiToken, account_id: formAccountId },
+        env_var_map: envMap,
+      })
+    } else if (editing) {
+      const update: Record<string, unknown> = {
+        id: editing,
+        name: formName,
+        credential_type: formType,
+        config: { api_token: formApiToken || '', account_id: formAccountId },
+        env_var_map: envMap,
+      }
+      await updateMutation.mutateAsync(update as Parameters<typeof updateMutation.mutateAsync>[0])
+    }
+    setEditing(null)
+  }
+
+  const handleDelete = async (id: string) => {
+    await deleteMutation.mutateAsync(id)
+  }
+
+  const isPending = createMutation.isPending || updateMutation.isPending
+
+  return (
+    <section className="space-y-4">
+      <h2 className="text-lg font-medium">Credentials</h2>
+      <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+        {isLoading ? (
+          <div className="flex justify-center py-4">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <>
+            {credentials && credentials.length > 0 && !editing && (
+              <div className="space-y-2">
+                {credentials.map((cred) => (
+                  <div key={cred.id} className="flex items-center justify-between rounded-md border border-border bg-background px-3 py-2">
+                    <div className="flex items-center gap-2">
+                      <KeyRound className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-sm font-medium">{cred.name}</span>
+                      <span className="rounded bg-secondary px-2 py-0.5 text-xs capitalize">{cred.credential_type}</span>
+                      {Object.keys(cred.env_var_map || {}).length > 0 && (
+                        <span className="text-xs text-muted-foreground">
+                          ({Object.keys(cred.env_var_map).length} env vars mapped)
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => startEdit(cred)}
+                        className="rounded-md p-1.5 text-muted-foreground hover:bg-accent"
+                        title="Edit"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(cred.id)}
+                        className="rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                        title="Delete"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {editing ? (
+              <div className="space-y-3 rounded-md border border-border bg-background p-3">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Name</label>
+                  <input
+                    type="text"
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={formName}
+                    onChange={(e) => setFormName(e.target.value)}
+                    placeholder="e.g. Production Cloudflare"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Type</label>
+                  <select
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={formType}
+                    onChange={(e) => setFormType(e.target.value as CredentialType)}
+                  >
+                    <option value="cloudflare">Cloudflare</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">API Token</label>
+                  <input
+                    type="password"
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={formApiToken}
+                    onChange={(e) => setFormApiToken(e.target.value)}
+                    placeholder={editing !== 'new' ? '(unchanged - enter new token to update)' : 'Cloudflare API Token'}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Account ID</label>
+                  <input
+                    type="text"
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono"
+                    value={formAccountId}
+                    onChange={(e) => setFormAccountId(e.target.value)}
+                    placeholder="Cloudflare Account ID"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Environment Variable Mapping</label>
+                  <p className="text-xs text-muted-foreground mb-2">
+                    Map credential fields to environment variables available to sensors.
+                  </p>
+                  {formEnvVarMap.map(([field, envName], i) => (
+                    <div key={i} className="flex items-center gap-2 mb-1">
+                      <select
+                        className="w-36 rounded-md border border-input bg-background px-2 py-1 text-sm"
+                        value={field}
+                        onChange={(e) => {
+                          const next = formEnvVarMap.map((item, idx) =>
+                            idx === i ? [e.target.value, item[1]] as [string, string] : item,
+                          )
+                          setFormEnvVarMap(next)
+                        }}
+                      >
+                        <option value="">Select field</option>
+                        <option value="api_token">api_token</option>
+                        <option value="account_id">account_id</option>
+                      </select>
+                      <span className="text-muted-foreground text-xs">&rarr;</span>
+                      <input
+                        type="text"
+                        className="flex-1 rounded-md border border-input bg-background px-2 py-1 text-sm font-mono"
+                        value={envName}
+                        onChange={(e) => {
+                          const next = formEnvVarMap.map((item, idx) =>
+                            idx === i ? [item[0], e.target.value] as [string, string] : item,
+                          )
+                          setFormEnvVarMap(next)
+                        }}
+                        placeholder="ENV_VAR_NAME"
+                      />
+                      <button
+                        onClick={() => setFormEnvVarMap(formEnvVarMap.filter((_, idx) => idx !== i))}
+                        className="rounded-md p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    onClick={() => setFormEnvVarMap([...formEnvVarMap, ['', '']])}
+                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground mt-1"
+                  >
+                    <Plus className="h-3 w-3" /> Add mapping
+                  </button>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleSave}
+                    disabled={isPending || !formName || (editing === 'new' && !formApiToken) || !formAccountId}
+                    className="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                  >
+                    {isPending ? 'Saving...' : 'Save'}
+                  </button>
+                  <button
+                    onClick={cancel}
+                    className="rounded-md bg-secondary px-4 py-2 text-sm hover:bg-secondary/80"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                onClick={startNew}
+                className="flex items-center gap-1 rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-accent"
+              >
+                <Plus className="h-4 w-4" />
+                Add Credential
+              </button>
+            )}
+          </>
+        )}
       </div>
     </section>
   )

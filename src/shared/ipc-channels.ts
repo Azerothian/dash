@@ -74,6 +74,13 @@ export const IPC_CHANNELS = {
   MONITOR_TEST_CONNECTION: 'monitor:test-connection',
   MONITOR_DISCOVER_PROJECTS: 'monitor:discover-projects',
 
+  // Credential channels
+  CREDENTIAL_LIST: 'credential:list',
+  CREDENTIAL_GET: 'credential:get',
+  CREDENTIAL_CREATE: 'credential:create',
+  CREDENTIAL_UPDATE: 'credential:update',
+  CREDENTIAL_DELETE: 'credential:delete',
+
   // Dialog channels
   DIALOG_OPEN_FILE: 'dialog:open-file',
 } as const
