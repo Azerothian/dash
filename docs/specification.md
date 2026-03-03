@@ -504,7 +504,7 @@ Mutations are computed values that rules can reference. Two types:
 | `operator` | enum | `+\|-\|*\|/` |
 | `right_operand` | string \| number | Mutation name or numeric literal |
 
-> **Evaluation order:** Aggregation mutations are evaluated first (pass 1), then expression mutations (pass 2). Expressions can reference aggregation results but not other expressions. Division by zero returns `null`.
+> **Evaluation order:** Aggregation mutations are evaluated first (pass 1), then expression mutations (pass 2). Expressions can reference any previously defined mutation (aggregation or expression). Mutations are evaluated in definition order. Division by zero returns `null`.
 
 **Create:** Validate fields → insert into `alert` table with `rules` and `mutations` JSON → register cron job if `enabled=true`.
 

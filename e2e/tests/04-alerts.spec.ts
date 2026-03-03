@@ -189,6 +189,68 @@ test.describe('Alerts', () => {
     await ipc.deleteAlert(created.id)
   })
 
+  test('chained expression mutations evaluate correctly', async () => {
+    // Create a sensor that outputs a known value
+    const sensor = await ipc.createSensor(makeSensor({
+      name: 'Chain Expr Sensor',
+      script_content: 'echo \'{"value": 10}\'',
+    }))
+
+    // Run the sensor to insert data
+    await ipc.runSensor(sensor.id)
+
+    // Create alert with chained expression mutations:
+    // avg_value = avg(value) = 10
+    // doubled = avg_value * 2 = 20
+    // plus_ten = doubled + 10 = 30  (references previous expression)
+    // Rule: plus_ten > 25 → should trigger (30 > 25)
+    const alertData = {
+      ...makeAlert([sensor.id], { name: 'Chained Expression Alert' }),
+      mutations: [
+        {
+          type: 'aggregation',
+          name: 'avg_value',
+          sensor_id: sensor.id,
+          column: 'value',
+          aggregation: 'avg',
+          time_window_minutes: 60,
+        },
+        {
+          type: 'expression',
+          name: 'doubled',
+          left_operand: 'avg_value',
+          operator: '*',
+          right_operand: 2,
+        },
+        {
+          type: 'expression',
+          name: 'plus_ten',
+          left_operand: 'doubled',
+          operator: '+',
+          right_operand: 10,
+        },
+      ],
+      rules: [{
+        mutation_ref: 'plus_ten',
+        column: '',
+        aggregation: 'last',
+        time_window_minutes: 60,
+        operator: '>',
+        threshold: 25,
+        severity: 'warning',
+      }],
+    }
+    const alert = await ipc.createAlert(alertData)
+
+    // Evaluate the alert — plus_ten = 30, threshold = 25, should trigger
+    const result = await ipc.runAlert(alert.id) as { state: string }
+    expect(result.state).toBe('warning')
+
+    // Cleanup
+    await ipc.deleteAlert(alert.id)
+    await ipc.deleteSensor(sensor.id)
+  })
+
   test('tag-based alert evaluates across multiple sensors', async () => {
     // Create 2 sensors with the same tag and same schema
     const tag = 'e2e-alert-tag'
