@@ -84,6 +84,9 @@ export class IpcBridgeService implements OnModuleInit {
     ipcMain.handle(IPC_CHANNELS.SENSOR_DATA_AGGREGATED, async (_event, sensorId: string, column: string, aggregation: string, timeWindowMinutes: number) => {
       return this.sensors.getAggregatedData(sensorId, column, aggregation as AggregationFunction, timeWindowMinutes)
     })
+    ipcMain.handle(IPC_CHANNELS.SENSOR_TAGS, async () => {
+      return this.sensors.getAllTags()
+    })
   }
 
   private registerAlertHandlers() {

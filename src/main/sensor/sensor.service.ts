@@ -26,8 +26,8 @@ export class SensorService {
     await this.db.run(
       `INSERT INTO sensor (id, name, description, execution_type, script_content,
         script_file_path, json_selector, table_definition, retention_rules, cron_expression,
-        env_vars, enabled, monitor_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        env_vars, tags, enabled, monitor_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       id,
       data.name,
       data.description || '',
@@ -39,6 +39,7 @@ export class SensorService {
       JSON.stringify(data.retention_rules || {}),
       data.cron_expression,
       JSON.stringify(data.env_vars || {}),
+      JSON.stringify(data.tags || []),
       data.enabled ?? true,
       data.monitor_id ?? null,
       now,
@@ -63,6 +64,7 @@ export class SensorService {
     if (data.retention_rules !== undefined) { fields.push('retention_rules = ?'); values.push(JSON.stringify(data.retention_rules)) }
     if (data.cron_expression !== undefined) { fields.push('cron_expression = ?'); values.push(data.cron_expression) }
     if (data.env_vars !== undefined) { fields.push('env_vars = ?'); values.push(JSON.stringify(data.env_vars)) }
+    if (data.tags !== undefined) { fields.push('tags = ?'); values.push(JSON.stringify(data.tags)) }
     if (data.enabled !== undefined) { fields.push('enabled = ?'); values.push(data.enabled) }
     if (data.monitor_id !== undefined) { fields.push('monitor_id = ?'); values.push(data.monitor_id) }
 
@@ -80,6 +82,20 @@ export class SensorService {
     await this.db.run('DELETE FROM sensor_data WHERE sensor_id = ?', id)
     await this.db.run('DELETE FROM panel_sensor WHERE sensor_id = ?', id)
     await this.db.run('DELETE FROM sensor WHERE id = ?', id)
+  }
+
+  async listByTag(tag: string): Promise<Sensor[]> {
+    const all = await this.list()
+    return all.filter((s) => s.tags.includes(tag))
+  }
+
+  async getAllTags(): Promise<string[]> {
+    const all = await this.list()
+    const tagSet = new Set<string>()
+    for (const s of all) {
+      for (const t of s.tags) tagSet.add(t)
+    }
+    return Array.from(tagSet).sort()
   }
 
   async listByMonitor(monitorId: string): Promise<Sensor[]> {
@@ -169,6 +185,7 @@ export class SensorService {
       retention_rules: typeof row.retention_rules === 'string' ? JSON.parse(row.retention_rules) : (row.retention_rules as Sensor['retention_rules']) || {},
       cron_expression: row.cron_expression as string,
       env_vars: typeof row.env_vars === 'string' ? JSON.parse(row.env_vars) : (row.env_vars as Record<string, string>) || {},
+      tags: typeof row.tags === 'string' ? JSON.parse(row.tags) : (row.tags as string[]) || [],
       enabled: Boolean(row.enabled),
       monitor_id: (row.monitor_id as string) || null,
       created_at: String(row.created_at),

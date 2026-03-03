@@ -4,7 +4,7 @@ import { join } from 'path'
 import { tmpdir } from 'os'
 import { unlinkSync } from 'fs'
 import { IpcHelper } from '../helpers/ipc'
-import { makeSensor, makeAlert } from '../helpers/factory'
+import { makeSensor, makeAlert, makeTagAlert } from '../helpers/factory'
 
 let app: Awaited<ReturnType<typeof electron.launch>>
 let page: Awaited<ReturnType<typeof app.firstWindow>>
@@ -119,5 +119,37 @@ test.describe('Alerts', () => {
     const alerts = await ipc.listAlerts()
     expect(alerts.length).toBe(0)
     testAlertId = ''
+  })
+
+  test('tag-based alert evaluates across multiple sensors', async () => {
+    // Create 2 sensors with the same tag and same schema
+    const tag = 'e2e-alert-tag'
+    const sensor1 = await ipc.createSensor(makeSensor({
+      name: 'Tag Sensor A',
+      tags: [tag],
+      script_content: 'echo \'{"value": 200}\'',
+    }))
+    const sensor2 = await ipc.createSensor(makeSensor({
+      name: 'Tag Sensor B',
+      tags: [tag],
+      script_content: 'echo \'{"value": 50}\'',
+    }))
+
+    // Run both sensors to insert data
+    await ipc.runSensor(sensor1.id)
+    await ipc.runSensor(sensor2.id)
+
+    // Create a tag-based alert: triggers when value > 100
+    const alertData = makeTagAlert(tag, { name: 'E2E Tag Alert' })
+    const alert = await ipc.createAlert(alertData)
+
+    // Evaluate the alert — sensor A has value=200 (>100), should trigger
+    const result = await ipc.runAlert(alert.id) as { state: string }
+    expect(result.state).toBe('warning')
+
+    // Cleanup
+    await ipc.deleteAlert(alert.id)
+    await ipc.deleteSensor(sensor1.id)
+    await ipc.deleteSensor(sensor2.id)
   })
 })

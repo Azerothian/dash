@@ -13,6 +13,7 @@ interface AlertFormProps {
 function emptyRule(): AlertRule {
   return {
     sensor_id: '',
+    tag: undefined,
     column: '',
     aggregation: 'last',
     time_window_minutes: 60,
@@ -72,7 +73,7 @@ export function AlertForm({ alertId, onClose }: AlertFormProps) {
     setRules(rules.filter((_, i) => i !== index))
   }
 
-  const hasValidRule = rules.some((r) => r.sensor_id && r.column)
+  const hasValidRule = rules.some((r) => (r.sensor_id || r.tag) && r.column)
   const isPending = createMutation.isPending || updateMutation.isPending
 
   if (alertId && isLoading) {

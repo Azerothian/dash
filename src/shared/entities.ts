@@ -29,12 +29,13 @@ export interface GraphStyleConfig {
 }
 
 export interface AlertRule {
-  sensor_id: string
+  sensor_id?: string
+  tag?: string
   column: string
   aggregation: AggregationFunction
   time_window_minutes: number
   operator: ComparisonOperator
-  threshold: number
+  threshold: number | string | boolean
   severity: AlertSeverity
 }
 
@@ -49,6 +50,7 @@ export interface Sensor {
   retention_rules: RetentionRules
   cron_expression: string
   env_vars: Record<string, string>
+  tags: string[]
   enabled: boolean
   monitor_id: string | null
   created_at: string

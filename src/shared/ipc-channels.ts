@@ -9,6 +9,7 @@ export const IPC_CHANNELS = {
   SENSOR_DELETE: 'sensor:delete',
   SENSOR_RUN: 'sensor:run',
   SENSOR_DATA_UPDATED: 'sensor:data-updated',
+  SENSOR_TAGS: 'sensor:tags',
 
   // Alert channels
   ALERT_LIST: 'alert:list',

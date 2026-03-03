@@ -224,6 +224,146 @@ test.describe('Alert Form', () => {
   })
 })
 
+// --- Alert Rule UI Behavior Tests ---
+
+test.describe('Alert Rule UI Behaviors', () => {
+  test('window input hidden when last aggregation selected', async () => {
+    await goTo('Alerts')
+    await page.locator('button', { hasText: 'New Alert' }).click()
+    await page.waitForTimeout(500)
+
+    // Add a rule
+    await page.locator('button', { hasText: 'Add Rule' }).click()
+    await page.waitForTimeout(300)
+
+    // Select sensor
+    const sensorSelect = page.locator('select').filter({ hasText: 'Select sensor...' })
+    await sensorSelect.selectOption({ label: prerequisiteSensorName })
+    await page.waitForTimeout(300)
+
+    // Default aggregation is 'last' — window should be hidden
+    await expect(page.locator('label', { hasText: 'Window (min)' })).not.toBeVisible()
+
+    // Switch to 'avg' — window should appear
+    const aggSelect = page.locator('select').nth(2)
+    await aggSelect.selectOption('avg')
+    await page.waitForTimeout(300)
+    await expect(page.locator('label', { hasText: 'Window (min)' })).toBeVisible()
+
+    // Switch back to 'last' — window should hide again
+    await aggSelect.selectOption('last')
+    await page.waitForTimeout(300)
+    await expect(page.locator('label', { hasText: 'Window (min)' })).not.toBeVisible()
+
+    // Go back without saving
+    await page.locator('button').filter({ has: page.locator('svg.lucide-arrow-left') }).click()
+    await page.waitForTimeout(300)
+  })
+
+  test('threshold input adapts to VARCHAR column type', async () => {
+    // Create a sensor with a VARCHAR column via IPC
+    const varcharSensor = await ipc.createSensor({
+      name: 'VARCHAR Test Sensor',
+      description: 'Sensor with text column',
+      execution_type: 'bash',
+      script_content: 'echo \'{"status": "ok"}\'',
+      table_definition: [{ name: 'status', type: 'VARCHAR', json_selector: '$.status' }],
+      retention_rules: {},
+      cron_expression: '*/5 * * * *',
+      env_vars: {},
+      tags: [],
+      enabled: true,
+    })
+    createdSensorIds.push(varcharSensor.id)
+
+    await goTo('Alerts')
+    await page.locator('button', { hasText: 'New Alert' }).click()
+    await page.waitForTimeout(500)
+
+    // Add a rule
+    await page.locator('button', { hasText: 'Add Rule' }).click()
+    await page.waitForTimeout(300)
+
+    // Select VARCHAR sensor
+    const sensorSelect = page.locator('select').filter({ hasText: 'Select sensor...' })
+    await sensorSelect.selectOption({ label: 'VARCHAR Test Sensor' })
+    await page.waitForTimeout(300)
+
+    // Select 'status' column
+    const columnSelect = page.locator('select').filter({ hasText: 'Select column...' })
+    await columnSelect.selectOption('status')
+    await page.waitForTimeout(300)
+
+    // Threshold should be a text input (not number)
+    const thresholdInput = page.locator('input[type="text"][placeholder="Value to compare..."]')
+    await expect(thresholdInput).toBeVisible()
+
+    // Only == and != operators should be available
+    const operatorSelect = page.locator('select').filter({ has: page.locator('option[value="=="]') }).first()
+    const options = await operatorSelect.locator('option').allTextContents()
+    expect(options).toEqual(['==', '!='])
+
+    // Go back without saving
+    await page.locator('button').filter({ has: page.locator('svg.lucide-arrow-left') }).click()
+    await page.waitForTimeout(300)
+  })
+
+  test('alert rule can target a tag', async () => {
+    // Create sensors with a shared tag
+    const taggedSensor1 = await ipc.createSensor({
+      name: 'Tagged Sensor A',
+      description: 'First tagged sensor',
+      execution_type: 'bash',
+      script_content: 'echo \'{"value": 42}\'',
+      table_definition: [{ name: 'value', type: 'DOUBLE', json_selector: '$.value' }],
+      retention_rules: {},
+      cron_expression: '*/5 * * * *',
+      env_vars: {},
+      tags: ['ui-test-tag'],
+      enabled: true,
+    })
+    const taggedSensor2 = await ipc.createSensor({
+      name: 'Tagged Sensor B',
+      description: 'Second tagged sensor',
+      execution_type: 'bash',
+      script_content: 'echo \'{"value": 99}\'',
+      table_definition: [{ name: 'value', type: 'DOUBLE', json_selector: '$.value' }],
+      retention_rules: {},
+      cron_expression: '*/5 * * * *',
+      env_vars: {},
+      tags: ['ui-test-tag'],
+      enabled: true,
+    })
+    createdSensorIds.push(taggedSensor1.id, taggedSensor2.id)
+
+    await goTo('Alerts')
+    await page.locator('button', { hasText: 'New Alert' }).click()
+    await page.waitForTimeout(500)
+
+    // Add a rule
+    await page.locator('button', { hasText: 'Add Rule' }).click()
+    await page.waitForTimeout(300)
+
+    // Click "Tag" toggle button
+    await page.locator('button', { hasText: 'Tag' }).click()
+    await page.waitForTimeout(300)
+
+    // Select tag from dropdown
+    const tagSelect = page.locator('select').filter({ hasText: 'Select tag...' })
+    await tagSelect.selectOption('ui-test-tag')
+    await page.waitForTimeout(300)
+
+    // Column dropdown should show 'value' (common column)
+    const columnSelect = page.locator('select').filter({ hasText: 'Select column...' })
+    const columnOptions = await columnSelect.locator('option').allTextContents()
+    expect(columnOptions).toContain('value')
+
+    // Go back without saving
+    await page.locator('button').filter({ has: page.locator('svg.lucide-arrow-left') }).click()
+    await page.waitForTimeout(300)
+  })
+})
+
 // --- Notification Form Tests ---
 
 test.describe('Notification Form', () => {

@@ -275,6 +275,9 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     // Add monitor_id column to sensor if missing
     await this.migrateSensorMonitorId()
 
+    // Add tags column to sensor if missing
+    await this.migrateSensorTags()
+
     // Settings
     await this.run(`
       CREATE TABLE IF NOT EXISTS settings (
@@ -290,6 +293,14 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       await this.all("SELECT monitor_id FROM sensor LIMIT 1")
     } catch {
       await this.run("ALTER TABLE sensor ADD COLUMN monitor_id VARCHAR DEFAULT NULL")
+    }
+  }
+
+  private async migrateSensorTags(): Promise<void> {
+    try {
+      await this.all("SELECT tags FROM sensor LIMIT 1")
+    } catch {
+      await this.run("ALTER TABLE sensor ADD COLUMN tags JSON DEFAULT '[]'")
     }
   }
 }

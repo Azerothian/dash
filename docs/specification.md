@@ -89,6 +89,7 @@ erDiagram
         json retention_rules
         string cron_expression
         json env_vars
+        json tags "string array for grouping"
         boolean enabled
         string monitor_id FK "nullable - null means user-created"
         timestamp created_at
@@ -319,6 +320,7 @@ sequenceDiagram
 | S-12 | As a user, I want to see a list of all sensors with their status so that I have an overview of data collection. | Virtualized list showing name, type, cron, last run, enabled/disabled. |
 | S-13 | As a user, I want to view collected sensor data so that I can inspect the values being gathered. | View Data button opens a table with Collected At + dynamic columns from table_definition; supports limit selection. |
 | S-14 | As a user, I want to configure panel data sources with aggregation modifiers so I can display avg, max, min etc. over time windows. | Panel options sheet shows Data Sources builder with sensor, column, aggregation, time window, and label fields; style options section controls grid, legend, dots, stroke width, fill opacity, and curve type. |
+| S-15 | As a user, I want to add free-form tags to sensors so that I can group related sensors. | Comma-separated tags input on sensor form; tags displayed as badges in sensor list. |
 
 ### 3.4 Alerts (12 stories)
 
@@ -336,6 +338,9 @@ sequenceDiagram
 | A-10 | As a user, I want to filter alerts by priority so that I can focus on critical issues first. | Sortable priority column and min-priority filter. |
 | A-11 | As a user, I want alerts to be enabled/disabled so that I can pause evaluation without deleting. | Toggle switch per alert; disabled alerts skip cron execution. |
 | A-12 | As a user, I want to clear an acknowledgement so that a previously handled alert can re-trigger notifications. | "Clear Ack" resets `acknowledged`, `ack_message`, and `ack_at`. |
+| A-13 | As a user, I want to target an alert rule by tag so that one rule evaluates across all sensors with that tag. | Sensor/Tag toggle in rule row; tag dropdown populated from all sensor tags; columns show intersection across tagged sensors. |
+| A-14 | As a user, I want the time window field hidden when using `last` aggregation so that the UI reflects backend behavior. | Window input conditionally rendered; grid adjusts columns accordingly. |
+| A-15 | As a user, I want threshold input to match the column data type so that I enter appropriate values. | BOOLEAN shows true/false select; VARCHAR shows text input with only `==`/`!=` operators; numeric shows number input with all operators. |
 
 ### 3.5 Notifications (9 stories)
 
@@ -405,6 +410,7 @@ sequenceDiagram
 | `retention_rules` | JSON | no | `{ max_age_days?, max_rows? }` | `{}` |
 | `cron_expression` | string | yes | valid cron expression (5 or 6 fields) | — |
 | `env_vars` | JSON | no | `{ key: value }` object | `{}` |
+| `tags` | JSON | no | array of strings for grouping sensors | `[]` |
 | `enabled` | boolean | yes | — | `true` |
 | `created_at` | timestamp | auto | — | `now()` |
 | `updated_at` | timestamp | auto | — | `now()` |
@@ -445,15 +451,20 @@ sequenceDiagram
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `sensor_id` | UUID FK | Target sensor |
+| `sensor_id` | UUID FK | Target sensor (optional if `tag` is set) |
+| `tag` | string | Target tag — matches all sensors with this tag (optional if `sensor_id` is set) |
 | `column` | string | Column from sensor's `table_definition` |
 | `aggregation` | enum | `avg\|min\|max\|sum\|count\|last` |
-| `time_window_minutes` | integer | Lookback window in minutes |
+| `time_window_minutes` | integer | Lookback window in minutes (ignored for `last` aggregation) |
 | `operator` | enum | `>\|>=\|<\|<=\|==\|!=` |
-| `threshold` | number | Comparison value |
+| `threshold` | number \| string \| boolean | Comparison value (type matches column datatype) |
 | `severity` | enum | `notice\|warning\|error` — severity when rule triggers |
 
 > **Note:** Sensor relationships are implicit through rule definitions. The `alert_sensor` junction table is no longer used.
+>
+> **Type-aware thresholds:** For non-numeric column types (VARCHAR, BOOLEAN), only `==` and `!=` operators are available, and only `last` and `count` aggregations are valid. The threshold input adapts: checkbox for BOOLEAN, text for VARCHAR, number for numeric types.
+>
+> **Tag-based evaluation:** When `tag` is set (and `sensor_id` is not), the engine fetches all sensors with that tag, runs the aggregation query per sensor, and triggers if ANY sensor matches. The column dropdown shows the intersection of columns across all tagged sensors.
 
 **Create:** Validate fields → insert into `alert` table with `rules` JSON → register cron job if `enabled=true`.
 
@@ -1223,24 +1234,17 @@ The app targets desktop Electron windows. Minimum supported size: **1024×768**.
 │        │  Priority: [1  ]  Enabled: [✓]                 │
 │        │  Cron: [*/1 * * * *     ] (every minute)       │
 │        │                                                │
-│        │  DuckDB Queries:                               │
-│        │  Query 1:                                      │
-│        │  ┌──────────── Monaco (SQL) ─────────────────┐ │
-│        │  │ SELECT avg(pct) as avg_cpu                 │ │
-│        │  │ FROM cpu_monitor_data                      │ │
-│        │  │ WHERE collected_at > now() - INTERVAL 5 MIN│ │
-│        │  └───────────────────────────────────────────┘ │
-│        │  [+ Add Query]                                 │
-│        │                                                │
-│        │  Evaluation Script:                            │
-│        │  ┌──────────── Monaco (TS) ──────────────────┐ │
-│        │  │ export default function(results) {         │ │
-│        │  │   if (results[0].avg_cpu > 90) return "error"│
-│        │  │   if (results[0].avg_cpu > 75) return "warn" │
-│        │  │   return "ok";                              │ │
-│        │  └───────────────────────────────────────────┘ │
-│        │                                                │
-│        │  Associated Sensors: [CPU Monitor ✕] [+]       │
+│        │  Alert Rules:                                  │
+│        │  ┌─────────────────────────────────────────┐   │
+│        │  │ Rule              [Sensor|Tag]    [✕]   │   │
+│        │  │ Sensor: [CPU Monitor ▾]  Column: [pct ▾]│   │
+│        │  │ Aggregation: [avg ▾]  Window: [5 min  ] │   │
+│        │  │ Operator: [> ▾]  Threshold: [90   ]     │   │
+│        │  │ Severity: [warning ▾]                    │   │
+│        │  └─────────────────────────────────────────┘   │
+│        │  Note: Window hidden when aggregation = last   │
+│        │  Note: Threshold adapts to column type         │
+│        │  [+ Add Rule]                                  │
 │        │                                                │
 │        │  [Cancel]                            [Save]    │
 └────────┴────────────────────────────────────────────────┘

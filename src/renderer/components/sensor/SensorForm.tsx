@@ -34,6 +34,7 @@ export function SensorForm({ sensorId, onClose }: SensorFormProps) {
   ])
   const [cronExpression, setCronExpression] = useState('*/5 * * * *')
   const [envVars, setEnvVars] = useState<Record<string, string>>({})
+  const [tags, setTags] = useState('')
   const [maxAgeDays, setMaxAgeDays] = useState<number | ''>('')
   const [maxRows, setMaxRows] = useState<number | ''>('')
   const [enabled, setEnabled] = useState(true)
@@ -48,6 +49,7 @@ export function SensorForm({ sensorId, onClose }: SensorFormProps) {
       setTableDefinition(sensor.table_definition)
       setCronExpression(sensor.cron_expression)
       setEnvVars(sensor.env_vars)
+      setTags((sensor.tags || []).join(', '))
       setMaxAgeDays(sensor.retention_rules.max_age_days ?? '')
       setMaxRows(sensor.retention_rules.max_rows ?? '')
       setEnabled(sensor.enabled)
@@ -55,6 +57,7 @@ export function SensorForm({ sensorId, onClose }: SensorFormProps) {
   }, [sensor])
 
   const handleSubmit = async () => {
+    const parsedTags = tags.split(',').map((t) => t.trim()).filter(Boolean)
     const data = {
       name,
       description,
@@ -68,6 +71,7 @@ export function SensorForm({ sensorId, onClose }: SensorFormProps) {
       },
       cron_expression: cronExpression,
       env_vars: envVars,
+      tags: parsedTags,
       enabled,
     }
 
@@ -202,6 +206,18 @@ export function SensorForm({ sensorId, onClose }: SensorFormProps) {
         <TableDefinitionEditor value={tableDefinition} onChange={setTableDefinition} />
 
         <SelectorTester columns={tableDefinition} />
+
+        <div>
+          <label className="block text-sm font-medium mb-1">Tags</label>
+          <input
+            type="text"
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            value={tags}
+            onChange={(e) => setTags(e.target.value)}
+            placeholder="web, production, api"
+          />
+          <p className="mt-1 text-xs text-muted-foreground">Comma-separated tags for grouping sensors</p>
+        </div>
 
         <div className="grid grid-cols-2 gap-4">
           <div>

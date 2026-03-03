@@ -1,13 +1,26 @@
 import { Injectable, Inject } from '@nestjs/common'
 import { v4 as uuidv4 } from 'uuid'
 import { DatabaseService } from '../database/database.service.js'
-import type { Alert, AlertHistory, AlertRule, AlertSeverity, AlertState, ComparisonOperator, CreateAlert, UpdateAlert } from '@shared/entities'
+import { SensorService } from '../sensor/sensor.service.js'
+import type { Alert, AlertHistory, AlertRule, AlertSeverity, AlertState, ComparisonOperator, CreateAlert, UpdateAlert, Sensor } from '@shared/entities'
 
 const SEVERITY_ORDER: Record<AlertSeverity, number> = { notice: 1, warning: 2, error: 3 }
+const NUMERIC_TYPES = ['INTEGER', 'BIGINT', 'DOUBLE', 'TIMESTAMP']
+
+function isNumericType(colType: string): boolean {
+  return NUMERIC_TYPES.includes(colType.toUpperCase())
+}
+
+function isBooleanType(colType: string): boolean {
+  return colType.toUpperCase() === 'BOOLEAN'
+}
 
 @Injectable()
 export class AlertService {
-  constructor(@Inject(DatabaseService) private db: DatabaseService) {}
+  constructor(
+    @Inject(DatabaseService) private db: DatabaseService,
+    @Inject(SensorService) private sensorService: SensorService,
+  ) {}
 
   async list(): Promise<Alert[]> {
     const rows = await this.db.all<Record<string, unknown>>('SELECT * FROM alert ORDER BY priority, name')
@@ -109,20 +122,41 @@ export class AlertService {
       return { state: 'ok', result: { message: 'No rules defined' } }
     }
 
+    // Pre-fetch all sensors for column type lookups
+    const allSensors = await this.sensorService.list()
+    const sensorMap = new Map<string, Sensor>(allSensors.map((s) => [s.id, s]))
+
     let highestSeverity: AlertSeverity | null = null
-    const ruleResults: Array<{ rule: AlertRule; value: number | null; triggered: boolean }> = []
+    const ruleResults: Array<{ rule: AlertRule; value: number | string | boolean | null; triggered: boolean; sensor_id?: string }> = []
 
     for (const rule of alert.rules) {
       try {
-        const { sql, params } = this.buildRuleQuery(rule)
-        const rows = await this.db.all<Record<string, unknown>>(sql, ...params)
-        const row = rows[0]
-        const value = row ? Number(row.result) : null
+        // Determine which sensors to evaluate
+        let sensorIds: string[] = []
+        if (rule.tag && !rule.sensor_id) {
+          const tagSensors = allSensors.filter((s) => s.tags.includes(rule.tag!))
+          sensorIds = tagSensors.map((s) => s.id)
+        } else if (rule.sensor_id) {
+          sensorIds = [rule.sensor_id]
+        }
 
-        const triggered = value !== null && !isNaN(value) && this.compareValue(value, rule.operator, rule.threshold)
-        ruleResults.push({ rule, value, triggered })
+        let anyTriggered = false
+        for (const sensorId of sensorIds) {
+          const sensor = sensorMap.get(sensorId)
+          const columnType = this.getColumnType(sensor, rule.column)
+          const { sql, params } = this.buildRuleQuery(rule, sensorId, columnType)
+          const rows = await this.db.all<Record<string, unknown>>(sql, ...params)
+          const row = rows[0]
+          const rawValue = row?.result
+          const value = this.coerceValue(rawValue, columnType)
 
-        if (triggered) {
+          const triggered = value !== null && this.compareValue(value, rule.operator, rule.threshold)
+          ruleResults.push({ rule, value, triggered, sensor_id: sensorId })
+
+          if (triggered) anyTriggered = true
+        }
+
+        if (anyTriggered) {
           if (!highestSeverity || SEVERITY_ORDER[rule.severity] > SEVERITY_ORDER[highestSeverity]) {
             highestSeverity = rule.severity
           }
@@ -152,29 +186,75 @@ export class AlertService {
     }))
   }
 
-  private buildRuleQuery(rule: AlertRule): { sql: string; params: unknown[] } {
-    // Sanitize column name to prevent injection
+  private getColumnType(sensor: Sensor | undefined, column: string): string | undefined {
+    if (!sensor || !column) return undefined
+    const col = sensor.table_definition?.find((c) => c.name === column)
+    return col?.type
+  }
+
+  private buildRuleQuery(rule: AlertRule, sensorId: string, columnType?: string): { sql: string; params: unknown[] } {
     const column = rule.column.replace(/[^a-zA-Z0-9_]/g, '')
     const minutes = Math.max(1, Math.floor(rule.time_window_minutes))
     const cutoff = new Date(Date.now() - minutes * 60 * 1000).toISOString()
 
-    if (rule.aggregation === 'last') {
+    const isNonNumeric = columnType && !isNumericType(columnType)
+
+    // For non-numeric types with aggregations other than last/count, fall back to last
+    const effectiveAgg = isNonNumeric && rule.aggregation !== 'last' && rule.aggregation !== 'count'
+      ? 'last'
+      : rule.aggregation
+
+    if (effectiveAgg === 'last') {
+      if (isNonNumeric) {
+        // Don't CAST for VARCHAR/BOOLEAN
+        return {
+          sql: `SELECT json_extract_string(data, '$.${column}') AS result
+            FROM sensor_data WHERE sensor_id = ? AND collected_at >= ?
+            ORDER BY collected_at DESC LIMIT 1`,
+          params: [sensorId, cutoff],
+        }
+      }
       return {
         sql: `SELECT CAST(json_extract_string(data, '$.${column}') AS DOUBLE) AS result
           FROM sensor_data WHERE sensor_id = ? AND collected_at >= ?
           ORDER BY collected_at DESC LIMIT 1`,
-        params: [rule.sensor_id, cutoff],
+        params: [sensorId, cutoff],
+      }
+    }
+
+    if (effectiveAgg === 'count') {
+      return {
+        sql: `SELECT count(json_extract_string(data, '$.${column}')) AS result
+          FROM sensor_data WHERE sensor_id = ? AND collected_at >= ?`,
+        params: [sensorId, cutoff],
       }
     }
 
     return {
-      sql: `SELECT ${rule.aggregation}(CAST(json_extract_string(data, '$.${column}') AS DOUBLE)) AS result
+      sql: `SELECT ${effectiveAgg}(CAST(json_extract_string(data, '$.${column}') AS DOUBLE)) AS result
         FROM sensor_data WHERE sensor_id = ? AND collected_at >= ?`,
-      params: [rule.sensor_id, cutoff],
+      params: [sensorId, cutoff],
     }
   }
 
-  private compareValue(value: number, operator: ComparisonOperator, threshold: number): boolean {
+  private coerceValue(raw: unknown, columnType?: string): number | string | boolean | null {
+    if (raw === null || raw === undefined) return null
+
+    if (columnType && isBooleanType(columnType)) {
+      if (typeof raw === 'boolean') return raw
+      if (typeof raw === 'string') return raw.toLowerCase() === 'true'
+      return Boolean(raw)
+    }
+
+    if (columnType && !isNumericType(columnType)) {
+      return String(raw)
+    }
+
+    const num = Number(raw)
+    return isNaN(num) ? null : num
+  }
+
+  private compareValue(value: number | string | boolean, operator: ComparisonOperator, threshold: number | string | boolean): boolean {
     switch (operator) {
       case '>': return value > threshold
       case '>=': return value >= threshold

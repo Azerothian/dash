@@ -149,11 +149,16 @@ function SensorRow({
   return (
     <tr className="border-b border-border last:border-0 hover:bg-muted/30">
       <td className="px-4 py-3 font-medium">
-        <span className="flex items-center gap-2">
+        <span className="flex items-center gap-2 flex-wrap">
           {sensor.name}
           {sensor.monitor_id && (
             <span className="rounded bg-primary/10 px-1.5 py-0.5 text-xs text-primary">Managed</span>
           )}
+          {sensor.tags?.map((tag) => (
+            <span key={tag} className="rounded bg-secondary px-1.5 py-0.5 text-xs text-secondary-foreground">
+              {tag}
+            </span>
+          ))}
         </span>
       </td>
       <td className="px-4 py-3">

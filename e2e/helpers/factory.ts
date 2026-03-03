@@ -14,6 +14,7 @@ export function makeSensor(overrides: Record<string, unknown> = {}) {
     retention_rules: {},
     cron_expression: '*/5 * * * *',
     env_vars: {},
+    tags: [],
     enabled: true,
     ...overrides,
   }
@@ -32,6 +33,26 @@ export function makeAlert(sensorIds: string[] = [], overrides: Record<string, un
       threshold: 100,
       severity: 'warning',
     })),
+    cron_expression: '*/5 * * * *',
+    priority: 3,
+    enabled: true,
+    ...overrides,
+  }
+}
+
+export function makeTagAlert(tag: string, overrides: Record<string, unknown> = {}) {
+  return {
+    name: `Test Tag Alert ${uid()}`,
+    description: 'E2E tag-based alert',
+    rules: [{
+      tag,
+      column: 'value',
+      aggregation: 'last',
+      time_window_minutes: 60,
+      operator: '>',
+      threshold: 100,
+      severity: 'warning',
+    }],
     cron_expression: '*/5 * * * *',
     priority: 3,
     enabled: true,
