@@ -287,7 +287,7 @@ export function MonitorForm({ monitorId, onClose }: MonitorFormProps) {
 
             <div className="flex items-center gap-2">
               <button
-                onClick={handleTestConnection}
+                onClick={handleRefresh}
                 disabled={testMutation.isPending || !apiToken || !accountId}
                 className="flex items-center gap-2 rounded-md bg-secondary px-4 py-2 text-sm hover:bg-secondary/80 disabled:opacity-50"
               >
