@@ -243,11 +243,28 @@ export class IpcBridgeService implements OnModuleInit {
       }
       return this.monitorExecutor.testConnection(encryptedConfig)
     })
-    ipcMain.handle(IPC_CHANNELS.MONITOR_DISCOVER_PROJECTS, async (_event, id: string) => {
-      const monitor = await this.monitors.get(id)
-      if (!monitor) throw new Error(`Monitor ${id} not found`)
-      const config = monitor.config as CloudflarePagesConfig
-      return this.monitorExecutor.testConnection(config)
+    ipcMain.handle(IPC_CHANNELS.MONITOR_DISCOVER_PROJECTS, async (_event, params: string | { monitorId?: string; credentialId?: string }) => {
+      // Backward compat: if string, treat as monitorId
+      const monId = typeof params === 'string' ? params : params.monitorId
+      if (monId) {
+        const monitor = await this.monitors.get(monId)
+        if (!monitor) throw new Error(`Monitor ${monId} not found`)
+        const config = await this.monitorExecutor.resolveConfig(monitor)
+        return this.monitorExecutor.testConnection(config)
+      }
+      if (typeof params === 'object' && params.credentialId) {
+        const cred = await this.credentials.get(params.credentialId)
+        if (!cred) throw new Error(`Credential ${params.credentialId} not found`)
+        const credConfig = cred.config as CloudflareCredentialConfig
+        const config: CloudflarePagesConfig = {
+          api_token: credConfig.api_token,
+          account_id: credConfig.account_id,
+          excluded_projects: [],
+          projects: [],
+        }
+        return this.monitorExecutor.testConnection(config)
+      }
+      throw new Error('Either monitorId or credentialId required')
     })
   }
 

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { ArrowLeft, Save, Loader2, Wifi, WifiOff, RefreshCw } from 'lucide-react'
-import { useMonitor, useCreateMonitor, useUpdateMonitor, useTestMonitorConnection, useDiscoverMonitorProjects } from '../../hooks/useMonitors'
+import { useMonitor, useCreateMonitor, useUpdateMonitor, useTestMonitorConnection, useDiscoverMonitorProjects, useDiscoverProjectsByCredential } from '../../hooks/useMonitors'
 import { useCredentials } from '../../hooks/useCredentials'
 import { useSensors } from '../../hooks/useSensors'
 import { useQueryClient } from '@tanstack/react-query'
@@ -18,6 +18,7 @@ export function MonitorForm({ monitorId, onClose }: MonitorFormProps) {
   const createMutation = useCreateMonitor()
   const updateMutation = useUpdateMonitor()
   const testMutation = useTestMonitorConnection()
+  const credentialDiscoverMutation = useDiscoverProjectsByCredential()
   const { data: discovered } = useDiscoverMonitorProjects(monitorId)
   const { data: allCredentials } = useCredentials()
   const queryClient = useQueryClient()
@@ -103,7 +104,13 @@ export function MonitorForm({ monitorId, onClose }: MonitorFormProps) {
       if (monitorId) {
         // Existing monitor: invalidate discover query to re-fetch via stored credential
         await queryClient.invalidateQueries({ queryKey: ['monitor-projects', monitorId] })
-      } else if (!credentialId && apiToken && accountId) {
+      } else if (credentialId) {
+        // New monitor with stored credential: discover via credential
+        const result = await credentialDiscoverMutation.mutateAsync(credentialId)
+        if (result.success && result.projects) {
+          mergeDiscoveredProjects(result.projects)
+        }
+      } else if (apiToken && accountId) {
         // New monitor with inline token: use test connection
         const result = await testMutation.mutateAsync({
           api_token: apiToken,
@@ -120,7 +127,7 @@ export function MonitorForm({ monitorId, onClose }: MonitorFormProps) {
     }
   }
 
-  const canRefresh = monitorId ? true : (!credentialId && !!apiToken && !!accountId)
+  const canRefresh = !!monitorId || !!credentialId || (!!apiToken && !!accountId)
 
   const handleUpdateProject = (index: number, updates: Partial<CloudflarePagesProjectConfig>) => {
     setProjects(projects.map((p, i) => i === index ? { ...p, ...updates } : p))
@@ -324,11 +331,11 @@ export function MonitorForm({ monitorId, onClose }: MonitorFormProps) {
           <h2 className="text-lg font-medium">Projects ({projects.length})</h2>
           <button
             onClick={handleRefresh}
-            disabled={!canRefresh || refreshing || testMutation.isPending}
+            disabled={!canRefresh || refreshing || testMutation.isPending || credentialDiscoverMutation.isPending}
             className="flex items-center gap-1.5 rounded-md bg-secondary px-3 py-1.5 text-sm hover:bg-secondary/80 disabled:opacity-50"
-            title={!canRefresh ? 'Save monitor first to enable refresh with stored credential' : 'Refresh projects from Cloudflare'}
+            title={!canRefresh ? 'Select a credential or enter API token and Account ID to refresh' : 'Refresh projects from Cloudflare'}
           >
-            {refreshing || testMutation.isPending ? (
+            {refreshing || testMutation.isPending || credentialDiscoverMutation.isPending ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
             ) : (
               <RefreshCw className="h-3.5 w-3.5" />

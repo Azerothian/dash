@@ -66,6 +66,16 @@ export function useDiscoverMonitorProjects(monitorId: string | undefined) {
   })
 }
 
+export function useDiscoverProjectsByCredential() {
+  return useMutation({
+    mutationFn: (credentialId: string) =>
+      window.api.invoke<{ success: boolean; projects?: { name: string; production_branch: string }[]; error?: string }>(
+        IPC_CHANNELS.MONITOR_DISCOVER_PROJECTS,
+        { credentialId },
+      ),
+  })
+}
+
 export function useTestMonitorConnection() {
   return useMutation({
     mutationFn: (config: CloudflarePagesConfig) =>

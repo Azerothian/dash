@@ -212,4 +212,34 @@ test.describe('Monitors', () => {
     // Cleanup
     await ipc.deleteMonitor(monitorResult.id)
   })
+
+  test('new monitor with credential enables refresh button', async () => {
+    // Create a credential via IPC
+    const cred = await ipc.createCredential({
+      name: `Refresh Test Cred ${Date.now()}`,
+      credential_type: 'cloudflare',
+      config: { api_token: 'test-token-encrypted', account_id: 'test-account-id' },
+      env_var_map: {},
+    })
+
+    await goToMonitors()
+
+    // Click New Monitor
+    await page.locator('button', { hasText: 'New Monitor' }).click()
+    await page.waitForTimeout(500)
+    await expect(page.locator('h1', { hasText: 'New Monitor' })).toBeVisible()
+
+    // Select the credential from dropdown
+    const credSelect = page.locator('select').filter({ has: page.locator(`option[value="${cred.id}"]`) })
+    await credSelect.selectOption(cred.id)
+    await page.waitForTimeout(300)
+
+    // Verify the Refresh button in Projects section is enabled
+    const refreshButton = page.locator('button', { hasText: 'Refresh' })
+    await expect(refreshButton).toBeEnabled()
+
+    // Cleanup
+    await page.locator('button').filter({ has: page.locator('svg') }).first().click() // back button
+    await ipc.deleteCredential(cred.id)
+  })
 })
