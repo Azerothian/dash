@@ -278,13 +278,22 @@ export class MonitorExecutorService {
     // 1. Fetch all Pages projects (paginated)
     const allProjectNames: string[] = []
     let projPage = 1
+    let fetchFailed = false
     while (true) {
       const projectsRes = await fetch(`${baseUrl}/pages/projects?page=${projPage}&per_page=50`, { headers })
-      const projectsData = await projectsRes.json() as { result?: { name: string }[]; result_info?: { page: number; total_pages: number } }
-      allProjectNames.push(...(projectsData.result || []).map((p) => p.name))
+      const projectsData = await projectsRes.json() as { success?: boolean; result?: { name: string }[]; result_info?: { page: number; total_pages: number } }
+      if (projectsData.success === false || !projectsData.result) {
+        fetchFailed = true
+        break
+      }
+      allProjectNames.push(...projectsData.result.map((p) => p.name))
       const totalPages = projectsData.result_info?.total_pages ?? 1
       if (projPage >= totalPages) break
       projPage++
+    }
+    if (fetchFailed) {
+      // Cannot verify remote state — skip execution to avoid deleting sensors
+      return
     }
 
     // 2. Migrate config if needed
