@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
-import { ArrowLeft, Save, Loader2, Wifi, WifiOff, X, Plus, ChevronDown } from 'lucide-react'
+import { ArrowLeft, Save, Loader2, Wifi, WifiOff, RefreshCw } from 'lucide-react'
 import { useMonitor, useCreateMonitor, useUpdateMonitor, useTestMonitorConnection, useDiscoverMonitorProjects } from '../../hooks/useMonitors'
 import { useCredentials } from '../../hooks/useCredentials'
 import { useSensors } from '../../hooks/useSensors'
+import { useQueryClient } from '@tanstack/react-query'
 import { CronInput } from '../shared/CronInput'
 import type { MonitorType, CloudflarePagesConfig, CloudflarePagesProjectConfig } from '@shared/entities'
 
@@ -19,6 +20,7 @@ export function MonitorForm({ monitorId, onClose }: MonitorFormProps) {
   const testMutation = useTestMonitorConnection()
   const { data: discovered } = useDiscoverMonitorProjects(monitorId)
   const { data: allCredentials } = useCredentials()
+  const queryClient = useQueryClient()
 
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -29,11 +31,7 @@ export function MonitorForm({ monitorId, onClose }: MonitorFormProps) {
   const [credentialId, setCredentialId] = useState<string | null>(null)
   const [cronExpression, setCronExpression] = useState('*/5 * * * *')
   const [enabled, setEnabled] = useState(true)
-
-  // Test connection state
-  const [discoveredProjects, setDiscoveredProjects] = useState<{ name: string; production_branch: string }[] | null>(null)
-  const [addDropdownOpen, setAddDropdownOpen] = useState(false)
-  const [manualProjectName, setManualProjectName] = useState('')
+  const [refreshing, setRefreshing] = useState(false)
 
   useEffect(() => {
     if (monitor) {
@@ -61,7 +59,7 @@ export function MonitorForm({ monitorId, onClose }: MonitorFormProps) {
             if (s.tags.includes('functions')) {
               functionsNames.add(projectName)
             } else if (!derived.find((d) => d.name === projectName)) {
-              derived.push({ name: projectName, branches: [], collect_metrics: false })
+              derived.push({ name: projectName, branches: [], environments: ['production'], collect_metrics: false })
             }
           }
           if (derived.length > 0) {
@@ -76,47 +74,53 @@ export function MonitorForm({ monitorId, onClose }: MonitorFormProps) {
     }
   }, [monitor, sensors])
 
-  // Seed discoveredProjects from the backend discover query (uses stored encrypted token)
+  // Merge discovered projects into list (from backend discover query for existing monitors)
   useEffect(() => {
-    if (discovered?.success && discovered.projects && !discoveredProjects) {
-      setDiscoveredProjects(discovered.projects)
+    if (discovered?.success && discovered.projects) {
+      mergeDiscoveredProjects(discovered.projects)
     }
   }, [discovered])
 
-  const handleTestConnection = async () => {
-    if (!apiToken || !accountId) return
-    const result = await testMutation.mutateAsync({
-      api_token: apiToken,
-      account_id: accountId,
-      excluded_projects: [],
-      projects: [],
-    })
-    if (result.success && result.projects) {
-      setDiscoveredProjects(result.projects)
-      // Auto-populate projects if none configured yet
-      if (projects.length === 0) {
-        setProjects(result.projects.map((p) => ({
+  const mergeDiscoveredProjects = (discoveredList: { name: string; production_branch: string }[]) => {
+    setProjects((prev) => {
+      const existingNames = new Set(prev.map((p) => p.name))
+      const newProjects = discoveredList
+        .filter((p) => !existingNames.has(p.name))
+        .map((p) => ({
           name: p.name,
           branches: [p.production_branch],
+          environments: ['production'] as string[],
           collect_metrics: false,
-        })))
+          enabled: true,
+        }))
+      return newProjects.length > 0 ? [...prev, ...newProjects] : prev
+    })
+  }
+
+  const handleRefresh = async () => {
+    setRefreshing(true)
+    try {
+      if (monitorId) {
+        // Existing monitor: invalidate discover query to re-fetch via stored credential
+        await queryClient.invalidateQueries({ queryKey: ['monitor-projects', monitorId] })
+      } else if (!credentialId && apiToken && accountId) {
+        // New monitor with inline token: use test connection
+        const result = await testMutation.mutateAsync({
+          api_token: apiToken,
+          account_id: accountId,
+          excluded_projects: [],
+          projects: [],
+        })
+        if (result.success && result.projects) {
+          mergeDiscoveredProjects(result.projects)
+        }
       }
+    } finally {
+      setRefreshing(false)
     }
   }
 
-  const handleRemoveProject = (projectName: string) => {
-    setProjects(projects.filter((p) => p.name !== projectName))
-  }
-
-  const handleAddProject = (projectName: string) => {
-    const discovered = discoveredProjects?.find((p) => p.name === projectName)
-    setProjects([...projects, {
-      name: projectName,
-      branches: discovered ? [discovered.production_branch] : [],
-      collect_metrics: false,
-    }])
-    setAddDropdownOpen(false)
-  }
+  const canRefresh = monitorId ? true : (!credentialId && !!apiToken && !!accountId)
 
   const handleUpdateProject = (index: number, updates: Partial<CloudflarePagesProjectConfig>) => {
     setProjects(projects.map((p, i) => i === index ? { ...p, ...updates } : p))
@@ -163,8 +167,6 @@ export function MonitorForm({ monitorId, onClose }: MonitorFormProps) {
   }
 
   const managedSensors = sensors?.filter((s) => s.monitor_id === monitorId) || []
-  const configuredProjectNames = new Set(projects.map((p) => p.name))
-  const availableToAdd = discoveredProjects?.filter((p) => !configuredProjectNames.has(p.name)) || []
 
   return (
     <div className="mx-auto max-w-2xl space-y-6 pb-8">
@@ -320,64 +322,23 @@ export function MonitorForm({ monitorId, onClose }: MonitorFormProps) {
       <div className="space-y-4 rounded-lg border border-border bg-card p-4">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-medium">Projects ({projects.length})</h2>
-          <div className="flex items-center gap-2">
-            {availableToAdd.length > 0 && (
-              <div className="relative">
-                <button
-                  onClick={() => setAddDropdownOpen(!addDropdownOpen)}
-                  className="flex items-center gap-1 rounded-md bg-secondary px-3 py-1.5 text-sm hover:bg-secondary/80"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  Add Project
-                  <ChevronDown className="h-3.5 w-3.5" />
-                </button>
-                {addDropdownOpen && (
-                  <div className="absolute right-0 top-full z-10 mt-1 w-56 rounded-md border border-border bg-popover p-1 shadow-md">
-                    {availableToAdd.map((p) => (
-                      <button
-                        key={p.name}
-                        onClick={() => handleAddProject(p.name)}
-                        className="w-full rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
-                      >
-                        {p.name}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+          <button
+            onClick={handleRefresh}
+            disabled={!canRefresh || refreshing || testMutation.isPending}
+            className="flex items-center gap-1.5 rounded-md bg-secondary px-3 py-1.5 text-sm hover:bg-secondary/80 disabled:opacity-50"
+            title={!canRefresh ? 'Save monitor first to enable refresh with stored credential' : 'Refresh projects from Cloudflare'}
+          >
+            {refreshing || testMutation.isPending ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5" />
             )}
-            <div className="flex items-center gap-1">
-              <input
-                type="text"
-                className="w-36 rounded-md border border-input bg-background px-2 py-1.5 text-sm"
-                value={manualProjectName}
-                onChange={(e) => setManualProjectName(e.target.value)}
-                placeholder="Project name"
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && manualProjectName.trim() && !configuredProjectNames.has(manualProjectName.trim())) {
-                    handleAddProject(manualProjectName.trim())
-                    setManualProjectName('')
-                  }
-                }}
-              />
-              <button
-                onClick={() => {
-                  if (manualProjectName.trim() && !configuredProjectNames.has(manualProjectName.trim())) {
-                    handleAddProject(manualProjectName.trim())
-                    setManualProjectName('')
-                  }
-                }}
-                disabled={!manualProjectName.trim() || configuredProjectNames.has(manualProjectName.trim())}
-                className="flex items-center gap-1 rounded-md bg-secondary px-2 py-1.5 text-sm hover:bg-secondary/80 disabled:opacity-50"
-              >
-                <Plus className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          </div>
+            Refresh
+          </button>
         </div>
         {projects.length === 0 ? (
           <p className="text-sm text-muted-foreground py-4 text-center">
-            No projects configured. Use Test Connection to discover and add projects.
+            No projects configured. Use Refresh to discover projects.
           </p>
         ) : (
           <>
@@ -386,21 +347,23 @@ export function MonitorForm({ monitorId, onClose }: MonitorFormProps) {
             </p>
             <div className="space-y-3">
               {projects.map((project, index) => {
-                const discovered = discoveredProjects?.find((p) => p.name === project.name)
+                const isEnabled = project.enabled !== false
                 return (
                   <div
                     key={project.name}
-                    className="rounded-md border border-border bg-background p-3 space-y-2"
+                    className={`rounded-md border border-border bg-background p-3 space-y-2 ${!isEnabled ? 'opacity-50' : ''}`}
                   >
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-medium">{project.name}</span>
-                      <button
-                        onClick={() => handleRemoveProject(project.name)}
-                        className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                        title="Remove project"
-                      >
-                        <X className="h-4 w-4" />
-                      </button>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={isEnabled}
+                          onChange={() => handleUpdateProject(index, { enabled: !isEnabled })}
+                          className="sr-only peer"
+                        />
+                        <div className="w-9 h-5 bg-muted rounded-full peer peer-checked:bg-primary transition-colors after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full" />
+                      </label>
                     </div>
                     <div>
                       <label className="block text-xs text-muted-foreground mb-1">
@@ -417,7 +380,7 @@ export function MonitorForm({ monitorId, onClose }: MonitorFormProps) {
                             .filter(Boolean)
                           handleUpdateProject(index, { branches })
                         }}
-                        placeholder={discovered?.production_branch || 'main'}
+                        placeholder="main"
                       />
                     </div>
                     <label className="flex items-center gap-2 cursor-pointer">
@@ -429,6 +392,39 @@ export function MonitorForm({ monitorId, onClose }: MonitorFormProps) {
                       />
                       <span className="text-xs">Collect Functions metrics</span>
                     </label>
+                    <div className="flex items-center gap-4">
+                      <span className="text-xs text-muted-foreground">Environments:</span>
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={(project.environments || ['production']).includes('production')}
+                          onChange={(e) => {
+                            const current = project.environments || ['production']
+                            const next = e.target.checked
+                              ? [...current.filter((x) => x !== 'production'), 'production']
+                              : current.filter((x) => x !== 'production')
+                            handleUpdateProject(index, { environments: next })
+                          }}
+                          className="rounded"
+                        />
+                        <span className="text-xs">Production</span>
+                      </label>
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={(project.environments || ['production']).includes('preview')}
+                          onChange={(e) => {
+                            const current = project.environments || ['production']
+                            const next = e.target.checked
+                              ? [...current.filter((x) => x !== 'preview'), 'preview']
+                              : current.filter((x) => x !== 'preview')
+                            handleUpdateProject(index, { environments: next })
+                          }}
+                          className="rounded"
+                        />
+                        <span className="text-xs">Preview</span>
+                      </label>
+                    </div>
                   </div>
                 )
               })}

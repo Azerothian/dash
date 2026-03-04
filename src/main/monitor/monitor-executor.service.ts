@@ -7,6 +7,7 @@ import type { Monitor, CloudflarePagesConfig, CloudflarePagesProjectConfig, Colu
 
 const CLOUDFLARE_PAGES_COLUMNS: ColumnDefinition[] = [
   { name: 'project_name', type: 'VARCHAR' },
+  { name: 'branch', type: 'VARCHAR' },
   { name: 'status', type: 'VARCHAR' },
   { name: 'stage_name', type: 'VARCHAR' },
   { name: 'environment', type: 'VARCHAR' },
@@ -105,6 +106,9 @@ export class MonitorExecutorService {
     const activeProjects = new Set<string>()
 
     for (const projectConfig of projectConfigs) {
+      // Skip disabled projects — their sensors will be cleaned up below
+      if (projectConfig.enabled === false) continue
+
       activeProjects.add(projectConfig.name)
       const statusTags = this.generateTags(projectConfig.name, projectConfig.branches, false)
       const functionsTags = this.generateTags(projectConfig.name, projectConfig.branches, true)
@@ -127,7 +131,7 @@ export class MonitorExecutorService {
           monitor_id: monitor.id,
         })
       } else {
-        await this.sensors.update({ id: existingStatus.id, tags: statusTags })
+        await this.sensors.update({ id: existingStatus.id, tags: statusTags, table_definition: CLOUDFLARE_PAGES_COLUMNS })
       }
 
       // Handle functions sensor
@@ -220,7 +224,7 @@ export class MonitorExecutorService {
     const excluded = new Set(config.excluded_projects || [])
     return allProjectNames
       .filter((name) => !excluded.has(name))
-      .map((name) => ({ name, branches: [], collect_metrics: false }))
+      .map((name) => ({ name, branches: [], environments: ['production'], collect_metrics: false }))
   }
 
   private generateTags(projectName: string, branches: string[], isFunctions: boolean): string[] {
@@ -276,6 +280,8 @@ export class MonitorExecutorService {
 
     // 5. For each configured project, ensure sensors exist and insert data
     for (const projectConfig of projectConfigs) {
+      // Skip disabled projects
+      if (projectConfig.enabled === false) continue
       // Skip projects that don't exist on the account
       if (!allProjectNames.includes(projectConfig.name)) continue
 
@@ -301,7 +307,7 @@ export class MonitorExecutorService {
           monitor_id: monitor.id,
         })
       } else {
-        await this.sensors.update({ id: statusSensor.id, tags: statusTags })
+        await this.sensors.update({ id: statusSensor.id, tags: statusTags, table_definition: CLOUDFLARE_PAGES_COLUMNS })
       }
 
       // Handle functions sensor
@@ -350,8 +356,16 @@ export class MonitorExecutorService {
         }
       }
 
-      // Fetch deployments — use per_page=5 for branch filtering, 1 otherwise
-      const perPage = projectConfig.branches.length > 0 ? 5 : 1
+      // Resolve environments (default to ['production'] for backward compat)
+      const environments = projectConfig.environments?.length > 0
+        ? projectConfig.environments
+        : ['production']
+
+      // Fetch deployments — enough to cover branches × environments
+      const perPage = Math.min(
+        Math.max((projectConfig.branches.length || 1) * environments.length * 3, 5),
+        20,
+      )
       const deploymentsRes = await fetch(
         `${baseUrl}/pages/projects/${projectConfig.name}/deployments?per_page=${perPage}`,
         { headers },
@@ -359,28 +373,48 @@ export class MonitorExecutorService {
       const deploymentsData = await deploymentsRes.json() as { result?: CfDeployment[] }
       const deployments = deploymentsData.result || []
 
-      // Pick deployment: filter by branch if configured
-      let latest: CfDeployment | undefined
-      if (projectConfig.branches.length > 0) {
-        latest = deployments.find((d) => {
-          const branch = d.deployment_trigger?.metadata?.branch
-          return branch && projectConfig.branches.includes(branch)
-        })
-      } else {
-        latest = deployments[0]
-      }
+      // Filter by environment
+      const envFiltered = deployments.filter((d) =>
+        environments.includes(d.environment || 'production'),
+      )
 
-      if (latest) {
-        // Insert status data
-        await this.sensors.insertData(statusSensor.id, {
-          project_name: projectConfig.name,
-          status: latest.latest_stage?.status || 'unknown',
-          stage_name: latest.latest_stage?.name || 'unknown',
-          environment: latest.environment || 'production',
-          deployment_url: latest.url || '',
-          deployment_id: latest.id || '',
-          created_on: latest.created_on || '',
-        })
+      if (projectConfig.branches.length > 0) {
+        // Record latest deployment per branch
+        const seenBranches = new Set<string>()
+        for (const d of envFiltered) {
+          const branch = d.deployment_trigger?.metadata?.branch
+          if (!branch || !projectConfig.branches.includes(branch)) continue
+          if (seenBranches.has(branch)) continue
+          seenBranches.add(branch)
+          await this.sensors.insertData(statusSensor.id, {
+            project_name: projectConfig.name,
+            branch,
+            status: d.latest_stage?.status || 'unknown',
+            stage_name: d.latest_stage?.name || 'unknown',
+            environment: d.environment || 'production',
+            deployment_url: d.url || '',
+            deployment_id: d.id || '',
+            created_on: d.created_on || '',
+          })
+        }
+      } else {
+        // No branch filter — record latest deployment per environment
+        const seenEnvironments = new Set<string>()
+        for (const d of envFiltered) {
+          const env = d.environment || 'production'
+          if (seenEnvironments.has(env)) continue
+          seenEnvironments.add(env)
+          await this.sensors.insertData(statusSensor.id, {
+            project_name: projectConfig.name,
+            branch: d.deployment_trigger?.metadata?.branch || '',
+            status: d.latest_stage?.status || 'unknown',
+            stage_name: d.latest_stage?.name || 'unknown',
+            environment: env,
+            deployment_url: d.url || '',
+            deployment_id: d.id || '',
+            created_on: d.created_on || '',
+          })
+        }
       }
     }
 

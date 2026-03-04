@@ -172,18 +172,20 @@ test.describe('Monitors', () => {
         account_id: 'test-account-id',
         excluded_projects: [],
         projects: [
-          { name: 'my-site', branches: ['main'], collect_metrics: false },
-          { name: 'my-app', branches: ['main', 'staging'], collect_metrics: true },
+          { name: 'my-site', branches: ['main'], environments: ['production'], collect_metrics: false },
+          { name: 'my-app', branches: ['main', 'staging'], environments: ['production', 'preview'], collect_metrics: true },
         ],
       },
     })
     const result = await ipc.createMonitor(monitor)
     expect(result.id).toBeTruthy()
 
-    const fetched = await ipc.getMonitor(result.id) as { config: { projects: Array<{ name: string; branches: string[]; collect_metrics: boolean }> } }
+    const fetched = await ipc.getMonitor(result.id) as { config: { projects: Array<{ name: string; branches: string[]; environments: string[]; collect_metrics: boolean }> } }
     expect(fetched.config.projects).toHaveLength(2)
     expect(fetched.config.projects[0].name).toBe('my-site')
     expect(fetched.config.projects[0].branches).toEqual(['main'])
+    expect(fetched.config.projects[0].environments).toEqual(['production'])
+    expect(fetched.config.projects[1].environments).toEqual(['production', 'preview'])
     expect(fetched.config.projects[1].collect_metrics).toBe(true)
 
     // Cleanup

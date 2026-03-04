@@ -281,6 +281,7 @@ export interface CloudflarePagesProjectConfig {
   branches: string[]        // empty = all branches
   environments: string[]    // e.g. ['production', 'preview'], empty = all
   collect_metrics: boolean  // create a separate metrics sensor
+  enabled?: boolean         // defaults to true; disabled projects are skipped during execution
 }
 
 export interface CloudflarePagesConfig {
