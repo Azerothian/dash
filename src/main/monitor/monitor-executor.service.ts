@@ -274,113 +274,56 @@ export class MonitorExecutorService {
     const apiToken = this.decryptToken(config.api_token)
     const baseUrl = `https://api.cloudflare.com/client/v4/accounts/${config.account_id}`
     const headers = { Authorization: `Bearer ${apiToken}` }
+    let dataPointsInserted = 0
+    let projectsProcessed = 0
 
-    // 1. Fetch all Pages projects (paginated)
-    const allProjectNames: string[] = []
-    let projPage = 1
-    let fetchFailed = false
-    while (true) {
-      const projectsRes = await fetch(`${baseUrl}/pages/projects?page=${projPage}&per_page=50`, { headers })
-      const projectsData = await projectsRes.json() as { success?: boolean; result?: { name: string }[]; result_info?: { page: number; total_pages: number } }
-      if (projectsData.success === false || !projectsData.result) {
-        fetchFailed = true
-        break
-      }
-      allProjectNames.push(...projectsData.result.map((p) => p.name))
-      const totalPages = projectsData.result_info?.total_pages ?? 1
-      if (projPage >= totalPages) break
-      projPage++
-    }
-    if (fetchFailed) {
-      // Cannot verify remote state — skip execution to avoid deleting sensors
-      return
-    }
+    console.log(`[Monitor:${monitor.name}] Starting Cloudflare Pages execution`)
 
-    // 2. Migrate config if needed
-    const projectConfigs = this.migrateConfig(config, allProjectNames)
-
-    // 3. Get existing managed sensors and index by tag
+    // Look up existing sensors — don't create/delete, just use what's there
     const existingSensors = await this.sensors.listByMonitor(monitor.id)
     const { statusSensors, functionsSensors } = this.indexSensorsByTag(existingSensors)
 
-    // 4. Track which projects are still active
-    const activeProjects = new Set<string>()
+    const projectConfigs = (config.projects || []).filter(p => p.enabled !== false)
 
-    // 5. For each configured project, ensure sensors exist and insert data
     for (const projectConfig of projectConfigs) {
-      // Skip disabled projects
-      if (projectConfig.enabled === false) continue
-      // Skip projects that don't exist on the account
-      if (!allProjectNames.includes(projectConfig.name)) continue
-
-      activeProjects.add(projectConfig.name)
-      const statusTags = this.generateTags(projectConfig.name, projectConfig.branches, false)
-      const functionsTags = this.generateTags(projectConfig.name, projectConfig.branches, true)
-
-      // Ensure status sensor exists
-      let statusSensor = statusSensors.get(projectConfig.name)
+      const statusSensor = statusSensors.get(projectConfig.name)
       if (!statusSensor) {
-        statusSensor = await this.sensors.create({
-          name: `CF: ${projectConfig.name}`,
-          description: `Cloudflare Pages project: ${projectConfig.name}`,
-          execution_type: 'cfp_build',
-          script_content: '',
-          script_file_path: '',
-          table_definition: CLOUDFLARE_PAGES_COLUMNS,
-          retention_rules: { max_age_days: 30 },
-          cron_expression: '',
-          env_vars: {},
-          tags: statusTags,
-          enabled: true,
-          monitor_id: monitor.id,
-        })
-      } else {
-        await this.sensors.update({ id: statusSensor.id, tags: statusTags, table_definition: CLOUDFLARE_PAGES_COLUMNS })
+        console.warn(`[Monitor:${monitor.name}] No sensor for project ${projectConfig.name}, skipping (save monitor to sync sensors)`)
+        continue
       }
 
-      // Handle functions sensor
+      projectsProcessed++
+      console.log(`[Monitor:${monitor.name}] Processing project: ${projectConfig.name}`)
+
+      // Fetch functions metrics if sensor exists
       if (projectConfig.collect_metrics) {
-        let functionsSensor = functionsSensors.get(projectConfig.name)
-        if (!functionsSensor) {
-          functionsSensor = await this.sensors.create({
-            name: `CF Functions: ${projectConfig.name}`,
-            description: `Cloudflare Pages Functions metrics: ${projectConfig.name}`,
-            execution_type: 'cfp_func_metrics',
-            script_content: '',
-            script_file_path: '',
-            table_definition: CLOUDFLARE_FUNCTIONS_COLUMNS,
-            retention_rules: { max_age_days: 30 },
-            cron_expression: '',
-            env_vars: {},
-            tags: functionsTags,
-            enabled: true,
-            monitor_id: monitor.id,
-          })
-        } else {
-          await this.sensors.update({ id: functionsSensor.id, tags: functionsTags })
-        }
+        const functionsSensor = functionsSensors.get(projectConfig.name)
+        if (functionsSensor) {
+          const now = new Date()
+          const since = new Date(now.getTime() - 5 * 60 * 1000) // last 5 minutes
+          const functionsData = await this.fetchFunctionsMetrics(
+            apiToken,
+            config.account_id,
+            projectConfig.name,
+            since.toISOString(),
+            now.toISOString(),
+          )
 
-        // Fetch Functions analytics via GraphQL
-        const now = new Date()
-        const since = new Date(now.getTime() - 5 * 60 * 1000) // last 5 minutes
-        const functionsData = await this.fetchFunctionsMetrics(
-          apiToken,
-          config.account_id,
-          projectConfig.name,
-          since.toISOString(),
-          now.toISOString(),
-        )
-
-        if (functionsData) {
-          await this.sensors.insertData(functionsSensor.id, {
-            project_name: projectConfig.name,
-            datetime: functionsData.datetime || now.toISOString(),
-            invocations: functionsData.invocations,
-            errors: functionsData.errors,
-            subrequests: functionsData.subrequests,
-            cpu_time_p50: functionsData.cpuTimeP50,
-            cpu_time_p99: functionsData.cpuTimeP99,
-          })
+          if (functionsData) {
+            await this.sensors.insertData(functionsSensor.id, {
+              project_name: projectConfig.name,
+              datetime: functionsData.datetime || now.toISOString(),
+              invocations: functionsData.invocations,
+              errors: functionsData.errors,
+              subrequests: functionsData.subrequests,
+              cpu_time_p50: functionsData.cpuTimeP50,
+              cpu_time_p99: functionsData.cpuTimeP99,
+            })
+            dataPointsInserted++
+            console.log(`[Monitor:${monitor.name}] Inserted functions metrics for ${projectConfig.name}`)
+          } else {
+            console.warn(`[Monitor:${monitor.name}] No functions metrics returned for ${projectConfig.name}`)
+          }
         }
       }
 
@@ -398,8 +341,17 @@ export class MonitorExecutorService {
         `${baseUrl}/pages/projects/${projectConfig.name}/deployments?per_page=${perPage}`,
         { headers },
       )
-      const deploymentsData = await deploymentsRes.json() as { result?: CfDeployment[] }
+      if (!deploymentsRes.ok) {
+        console.error(`[Monitor:${monitor.name}] Deployments API for ${projectConfig.name} returned HTTP ${deploymentsRes.status}: ${deploymentsRes.statusText}`)
+        continue
+      }
+      const deploymentsData = await deploymentsRes.json() as { success?: boolean; result?: CfDeployment[] }
+      if (deploymentsData.success === false) {
+        console.error(`[Monitor:${monitor.name}] Deployments API for ${projectConfig.name} returned success=false`)
+        continue
+      }
       const deployments = deploymentsData.result || []
+      console.log(`[Monitor:${monitor.name}] ${projectConfig.name}: found ${deployments.length} deployments`)
 
       // Filter by environment
       const envFiltered = deployments.filter((d) =>
@@ -424,6 +376,7 @@ export class MonitorExecutorService {
             deployment_id: d.id || '',
             created_on: d.created_on || '',
           })
+          dataPointsInserted++
         }
       } else {
         // No branch filter — record latest deployment per environment
@@ -442,20 +395,15 @@ export class MonitorExecutorService {
             deployment_id: d.id || '',
             created_on: d.created_on || '',
           })
+          dataPointsInserted++
         }
       }
     }
 
-    // 6. Remove sensors for projects no longer configured
-    for (const [projectName, sensor] of statusSensors) {
-      if (!activeProjects.has(projectName)) {
-        await this.sensors.delete(sensor.id)
-      }
-    }
-    for (const [projectName, sensor] of functionsSensors) {
-      if (!activeProjects.has(projectName)) {
-        await this.sensors.delete(sensor.id)
-      }
+    if (dataPointsInserted === 0 && projectsProcessed > 0) {
+      console.warn(`[Monitor:${monitor.name}] Completed but no data points were inserted across ${projectsProcessed} projects`)
+    } else {
+      console.log(`[Monitor:${monitor.name}] Completed: ${projectsProcessed} projects processed, ${dataPointsInserted} data points inserted`)
     }
   }
 
@@ -495,7 +443,17 @@ export class MonitorExecutorService {
         body: JSON.stringify({ query }),
       })
 
+      if (!res.ok) {
+        console.error(`[Functions:${projectName}] GraphQL API returned HTTP ${res.status}: ${res.statusText}`)
+        return null
+      }
+
       const data = await res.json() as CfGraphQLResponse
+      if (data.errors?.length) {
+        console.error(`[Functions:${projectName}] GraphQL errors: ${data.errors.map((e) => e.message).join(', ')}`)
+        return null
+      }
+
       const records = data.data?.viewer?.accounts?.[0]?.workersInvocationsAdaptive
       if (!records || records.length === 0) return null
 
@@ -508,7 +466,8 @@ export class MonitorExecutorService {
         cpuTimeP99: record.quantiles?.cpuTimeP99 ?? 0,
         datetime: record.dimensions?.datetime ?? until,
       }
-    } catch {
+    } catch (err) {
+      console.error(`[Functions:${projectName}] Failed to fetch metrics: ${err instanceof Error ? err.message : String(err)}`)
       return null
     }
   }
