@@ -67,6 +67,9 @@ export class IpcHelper {
   updateMonitor(data: Record<string, unknown>) { return this.invoke<unknown>('monitor:update', data) }
   deleteMonitor(id: string) { return this.invoke<void>('monitor:delete', id) }
   runMonitor(id: string) { return this.invoke<unknown>('monitor:run', id) }
+  discoverProjects(params: string | { monitorId?: string; credentialId?: string }) {
+    return this.invoke<{ success: boolean; projects?: { name: string; production_branch: string }[]; error?: string }>('monitor:discover-projects', params)
+  }
 
   // Credentials
   listCredentials() { return this.invoke<unknown[]>('credential:list') }

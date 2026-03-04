@@ -4,7 +4,7 @@ import { join } from 'path'
 import { tmpdir } from 'os'
 import { unlinkSync } from 'fs'
 import { IpcHelper } from '../helpers/ipc'
-import { makeMonitor, makeSensor } from '../helpers/factory'
+import { makeMonitor, makeSensor, makeCredential } from '../helpers/factory'
 
 let app: Awaited<ReturnType<typeof electron.launch>>
 let page: Awaited<ReturnType<typeof app.firstWindow>>
@@ -215,12 +215,7 @@ test.describe('Monitors', () => {
 
   test('new monitor with credential enables refresh button', async () => {
     // Create a credential via IPC
-    const cred = await ipc.createCredential({
-      name: `Refresh Test Cred ${Date.now()}`,
-      credential_type: 'cloudflare',
-      config: { api_token: 'test-token-encrypted', account_id: 'test-account-id' },
-      env_var_map: {},
-    })
+    const cred = await ipc.createCredential(makeCredential())
 
     await goToMonitors()
 
@@ -241,5 +236,52 @@ test.describe('Monitors', () => {
     // Cleanup
     await page.locator('button').filter({ has: page.locator('svg') }).first().click() // back button
     await ipc.deleteCredential(cred.id)
+  })
+
+  test('discover projects via monitorId (backward compat string param)', async () => {
+    const monitor = makeMonitor()
+    const result = await ipc.createMonitor(monitor)
+
+    // Discover with string param (backward compat) — will fail against fake token
+    // but should return an error result, not throw unhandled
+    const discover = await ipc.discoverProjects(result.id)
+    expect(discover).toHaveProperty('success')
+
+    // Cleanup
+    await ipc.deleteMonitor(result.id)
+  })
+
+  test('discover projects via monitorId object param', async () => {
+    const monitor = makeMonitor()
+    const result = await ipc.createMonitor(monitor)
+
+    const discover = await ipc.discoverProjects({ monitorId: result.id })
+    expect(discover).toHaveProperty('success')
+
+    // Cleanup
+    await ipc.deleteMonitor(result.id)
+  })
+
+  test('discover projects via credentialId', async () => {
+    const cred = await ipc.createCredential(makeCredential())
+
+    // Discover with credentialId — will fail against fake token but should not throw
+    const discover = await ipc.discoverProjects({ credentialId: cred.id })
+    expect(discover).toHaveProperty('success')
+
+    // Cleanup
+    await ipc.deleteCredential(cred.id)
+  })
+
+  test('discover projects rejects when neither monitorId nor credentialId given', async () => {
+    await expect(ipc.discoverProjects({})).rejects.toThrow(/Either monitorId or credentialId required/)
+  })
+
+  test('discover projects rejects for nonexistent credentialId', async () => {
+    await expect(ipc.discoverProjects({ credentialId: 'nonexistent-id' })).rejects.toThrow(/not found/)
+  })
+
+  test('discover projects rejects for nonexistent monitorId', async () => {
+    await expect(ipc.discoverProjects({ monitorId: 'nonexistent-id' })).rejects.toThrow(/not found/)
   })
 })

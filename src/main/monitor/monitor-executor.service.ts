@@ -179,15 +179,27 @@ export class MonitorExecutorService {
       const baseUrl = `https://api.cloudflare.com/client/v4/accounts/${config.account_id}`
       const headers = { Authorization: `Bearer ${apiToken}` }
 
-      const res = await fetch(`${baseUrl}/pages/projects`, { headers })
-      const data = await res.json() as { success: boolean; result?: { name: string; production_branch?: string }[]; errors?: { message: string }[] }
+      const allResults: { name: string; production_branch?: string }[] = []
+      let page = 1
+      const perPage = 50
 
-      if (!data.success) {
-        const errMsg = data.errors?.map((e) => e.message).join(', ') || 'Unknown API error'
-        return { success: false, error: errMsg }
+      while (true) {
+        const res = await fetch(`${baseUrl}/pages/projects?page=${page}&per_page=${perPage}`, { headers })
+        const data = await res.json() as { success: boolean; result?: { name: string; production_branch?: string }[]; errors?: { message: string }[]; result_info?: { page: number; total_pages: number } }
+
+        if (!data.success) {
+          const errMsg = data.errors?.map((e) => e.message).join(', ') || 'Unknown API error'
+          return { success: false, error: errMsg }
+        }
+
+        allResults.push(...(data.result || []))
+
+        const totalPages = data.result_info?.total_pages ?? 1
+        if (page >= totalPages) break
+        page++
       }
 
-      const projects = (data.result || []).map((p) => ({
+      const projects = allResults.map((p) => ({
         name: p.name,
         production_branch: p.production_branch || 'main',
       }))
@@ -263,10 +275,17 @@ export class MonitorExecutorService {
     const baseUrl = `https://api.cloudflare.com/client/v4/accounts/${config.account_id}`
     const headers = { Authorization: `Bearer ${apiToken}` }
 
-    // 1. Fetch all Pages projects
-    const projectsRes = await fetch(`${baseUrl}/pages/projects`, { headers })
-    const projectsData = await projectsRes.json() as { result?: { name: string }[] }
-    const allProjectNames = (projectsData.result || []).map((p) => p.name)
+    // 1. Fetch all Pages projects (paginated)
+    const allProjectNames: string[] = []
+    let projPage = 1
+    while (true) {
+      const projectsRes = await fetch(`${baseUrl}/pages/projects?page=${projPage}&per_page=50`, { headers })
+      const projectsData = await projectsRes.json() as { result?: { name: string }[]; result_info?: { page: number; total_pages: number } }
+      allProjectNames.push(...(projectsData.result || []).map((p) => p.name))
+      const totalPages = projectsData.result_info?.total_pages ?? 1
+      if (projPage >= totalPages) break
+      projPage++
+    }
 
     // 2. Migrate config if needed
     const projectConfigs = this.migrateConfig(config, allProjectNames)
