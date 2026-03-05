@@ -98,10 +98,127 @@ test.describe('Dashboards', () => {
     expect(panel.id).toBeTruthy()
   })
 
+  test('first panel renders in grid-stack after add', async () => {
+    if (!dashboardId) return
+
+    await goToDashboards()
+    await page.locator('button', { hasText: 'E2E Dashboard' }).click()
+    await page.waitForTimeout(500)
+
+    // The grid-stack container should exist and contain the panel
+    const gridStack = page.locator('.grid-stack')
+    await expect(gridStack).toBeVisible()
+    const items = gridStack.locator('.grid-stack-item')
+    await expect(items).toHaveCount(1)
+  })
+
+  test('add second panel — both panels visible, no overwrite', async () => {
+    if (!dashboardId) return
+
+    // Create a second panel via IPC
+    const panel2 = await ipc.createPanel({
+      dashboard_id: dashboardId,
+      type: 'graph',
+      graph_type: 'line',
+      custom_component: null,
+      gridstack_config: { x: 6, y: 0, w: 6, h: 3 },
+      panel_config: {},
+      sensor_ids: [],
+      alert_ids: [],
+    })
+    expect(panel2.id).toBeTruthy()
+
+    // Reload to pick up new panel
+    await goToDashboards()
+    await page.locator('button', { hasText: 'E2E Dashboard' }).click()
+    await page.waitForTimeout(500)
+
+    const items = page.locator('.grid-stack .grid-stack-item')
+    await expect(items).toHaveCount(2)
+  })
+
+  test('panels are draggable in edit mode', async () => {
+    if (!dashboardId) return
+
+    // Enter edit mode
+    const editButton = page.locator('button', { hasText: /^Edit$/ })
+    await editButton.click()
+    await page.waitForTimeout(300)
+
+    // GridStack marks draggable items — they should NOT have a static/disabled class
+    const firstItem = page.locator('.grid-stack .grid-stack-item').first()
+    await expect(firstItem).toBeVisible()
+
+    // GridStack adds ui-draggable-disabled when grid is static
+    const hasDisabledClass = await firstItem.evaluate(
+      el => el.classList.contains('ui-draggable-disabled')
+    )
+    expect(hasDisabledClass).toBe(false)
+
+    // Exit edit mode
+    await page.locator('button', { hasText: 'Editing' }).click()
+    await page.waitForTimeout(300)
+  })
+
+  test('panels not draggable outside edit mode', async () => {
+    if (!dashboardId) return
+
+    // Should already be out of edit mode from previous test
+    const firstItem = page.locator('.grid-stack .grid-stack-item').first()
+    await expect(firstItem).toBeVisible()
+
+    const hasDisabledClass = await firstItem.evaluate(
+      el => el.classList.contains('ui-draggable-disabled')
+    )
+    expect(hasDisabledClass).toBe(true)
+  })
+
+  test('panels persist after navigation away and back', async () => {
+    if (!dashboardId) return
+
+    // Navigate away — click a different sidebar item
+    const otherNav = page.locator('aside button', { hasText: 'Sensors' })
+    if (await otherNav.isVisible()) {
+      await otherNav.click()
+      await page.waitForTimeout(500)
+    }
+
+    // Navigate back to dashboards
+    await page.locator('aside button', { hasText: 'Dashboards' }).click()
+    await page.waitForTimeout(500)
+    await page.locator('button', { hasText: 'E2E Dashboard' }).click()
+    await page.waitForTimeout(500)
+
+    const items = page.locator('.grid-stack .grid-stack-item')
+    await expect(items).toHaveCount(2)
+  })
+
+  test('empty dashboard shows grid-stack div and empty message', async () => {
+    // Create a fresh empty dashboard
+    const emptyDash = await ipc.createDashboard({ name: 'Empty E2E Dash' })
+    expect(emptyDash.id).toBeTruthy()
+
+    await goToDashboards()
+    await page.locator('button', { hasText: 'Empty E2E Dash' }).click()
+    await page.waitForTimeout(500)
+
+    // Grid-stack div should still be present (for stable ref)
+    const gridStack = page.locator('.grid-stack')
+    await expect(gridStack).toBeAttached()
+
+    // Empty message should show
+    await expect(page.locator('text=No panels yet')).toBeVisible()
+
+    // Cleanup
+    await ipc.deleteDashboard(emptyDash.id)
+  })
+
   test('delete dashboard via UI', async () => {
     if (!dashboardId) return
 
     await goToDashboards()
+    await page.locator('button', { hasText: 'E2E Dashboard' }).click()
+    await page.waitForTimeout(500)
     await page.locator('button[title="Delete dashboard"]').click()
     await page.waitForTimeout(300)
     await expect(page.locator('h3', { hasText: 'Delete Dashboard' })).toBeVisible()

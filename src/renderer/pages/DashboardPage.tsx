@@ -249,8 +249,12 @@ interface DashboardGridProps {
 function DashboardGrid({ dashboard, editMode, onEditPanel, onDeletePanel, onBatchUpdate }: DashboardGridProps) {
   const gridRef = useRef<HTMLDivElement>(null)
   const gsRef = useRef<GridStack | null>(null)
+  const knownPanelsRef = useRef<Set<string>>(new Set())
+  const onBatchUpdateRef = useRef(onBatchUpdate)
+  onBatchUpdateRef.current = onBatchUpdate
   const panels = dashboard.panels || []
 
+  // Initialize GridStack once per dashboard — independent of editMode
   useEffect(() => {
     if (!gridRef.current) return
 
@@ -260,12 +264,20 @@ function DashboardGrid({ dashboard, editMode, onEditPanel, onDeletePanel, onBatc
       margin: 8,
       animate: true,
       float: false,
-      disableResize: !editMode,
-      disableDrag: !editMode,
-      staticGrid: !editMode,
     }, gridRef.current)
 
+    // Let the editMode useEffect handle enable/disable after init
+    if (!editMode) grid.disable()
+
     gsRef.current = grid
+
+    // Seed knownPanelsRef with panels GridStack auto-discovered during init
+    const initialIds = new Set<string>()
+    for (const node of grid.getGridItems()) {
+      const id = node.getAttribute('gs-id')
+      if (id) initialIds.add(id)
+    }
+    knownPanelsRef.current = initialIds
 
     grid.on('change', (_event, items) => {
       if (!items || !Array.isArray(items)) return
@@ -273,15 +285,17 @@ function DashboardGrid({ dashboard, editMode, onEditPanel, onDeletePanel, onBatc
         id: item.id as string,
         gridstack_config: { x: item.x ?? 0, y: item.y ?? 0, w: item.w ?? 4, h: item.h ?? 3 },
       }))
-      onBatchUpdate(updates)
+      onBatchUpdateRef.current(updates)
     })
 
     return () => {
       grid.destroy(false)
       gsRef.current = null
+      knownPanelsRef.current = new Set()
     }
-  }, [dashboard.id, editMode])
+  }, [dashboard.id])
 
+  // Toggle drag/resize when editMode changes (no grid re-creation)
   useEffect(() => {
     const grid = gsRef.current
     if (!grid) return
@@ -292,11 +306,41 @@ function DashboardGrid({ dashboard, editMode, onEditPanel, onDeletePanel, onBatc
     }
   }, [editMode])
 
+  // Reconcile React panels → GridStack widgets on panel list changes
+  useEffect(() => {
+    const grid = gsRef.current
+    if (!grid || !gridRef.current) return
+
+    const currentIds = new Set(panels.map(p => p.id))
+    const known = knownPanelsRef.current
+
+    // Add new panels to GridStack
+    for (const panel of panels) {
+      if (!known.has(panel.id)) {
+        const el = gridRef.current.querySelector(`[gs-id="${panel.id}"]`) as HTMLElement
+        if (el) {
+          grid.makeWidget(el)
+          known.add(panel.id)
+        }
+      }
+    }
+
+    // Remove stale panels from tracking
+    for (const id of known) {
+      if (!currentIds.has(id)) {
+        known.delete(id)
+      }
+    }
+  }, [panels])
+
   if (!panels.length) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-        <LayoutDashboard className="mb-4 h-12 w-12 opacity-20" />
-        <p>No panels yet.{editMode ? ' Click "Add Panel" to get started.' : ' Enable edit mode to add panels.'}</p>
+      <div>
+        <div ref={gridRef} className="grid-stack" />
+        <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+          <LayoutDashboard className="mb-4 h-12 w-12 opacity-20" />
+          <p>No panels yet.{editMode ? ' Click "Add Panel" to get started.' : ' Enable edit mode to add panels.'}</p>
+        </div>
       </div>
     )
   }
