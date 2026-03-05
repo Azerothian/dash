@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { ArrowLeft, Save, Loader2, Wifi, WifiOff, RefreshCw } from 'lucide-react'
 import { useMonitor, useCreateMonitor, useUpdateMonitor, useTestMonitorConnection, useDiscoverMonitorProjects, useDiscoverProjectsByCredential } from '../../hooks/useMonitors'
 import { useCredentials } from '../../hooks/useCredentials'
@@ -19,7 +19,7 @@ export function MonitorForm({ monitorId, onClose }: MonitorFormProps) {
   const updateMutation = useUpdateMonitor()
   const testMutation = useTestMonitorConnection()
   const credentialDiscoverMutation = useDiscoverProjectsByCredential()
-  const { data: discovered } = useDiscoverMonitorProjects(monitorId)
+  const { data: discovered, error: discoverQueryError } = useDiscoverMonitorProjects(monitorId)
   const { data: allCredentials } = useCredentials()
   const queryClient = useQueryClient()
 
@@ -33,6 +33,15 @@ export function MonitorForm({ monitorId, onClose }: MonitorFormProps) {
   const [cronExpression, setCronExpression] = useState('*/5 * * * *')
   const [enabled, setEnabled] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [discoverError, setDiscoverError] = useState<string | null>(null)
+  const projectsInitializedRef = useRef(false)
+  const lastMonitorIdRef = useRef<string | undefined>(monitorId)
+
+  // Reset initialization ref when monitorId changes
+  if (lastMonitorIdRef.current !== monitorId) {
+    lastMonitorIdRef.current = monitorId
+    projectsInitializedRef.current = false
+  }
 
   useEffect(() => {
     if (monitor) {
@@ -45,29 +54,34 @@ export function MonitorForm({ monitorId, onClose }: MonitorFormProps) {
       if (monitor.monitor_type === 'cloudflare_pages') {
         const cfg = monitor.config as CloudflarePagesConfig
         setAccountId(cfg.account_id || '')
-        // Load projects config, with migration from excluded_projects
-        if (cfg.projects && cfg.projects.length > 0) {
-          setProjects(cfg.projects)
-        } else {
-          // Derive from managed sensors for legacy monitors (tag-based lookup)
-          const managed = sensors?.filter((s) => s.monitor_id === monitor.id) || []
-          const derived: CloudflarePagesProjectConfig[] = []
-          const functionsNames = new Set<string>()
-          for (const s of managed) {
-            const projectTag = s.tags.find((t) => t.startsWith('project:'))
-            if (!projectTag) continue
-            const projectName = projectTag.slice(8)
-            if (s.tags.includes('functions')) {
-              functionsNames.add(projectName)
-            } else if (!derived.find((d) => d.name === projectName)) {
-              derived.push({ name: projectName, branches: [], environments: ['production'], collect_metrics: false })
+
+        // Only initialize projects once per monitorId to avoid race with sensor updates
+        if (!projectsInitializedRef.current) {
+          if (cfg.projects && cfg.projects.length > 0) {
+            setProjects(cfg.projects)
+            projectsInitializedRef.current = true
+          } else if (sensors) {
+            // Derive from managed sensors for legacy monitors (tag-based lookup)
+            const managed = sensors.filter((s) => s.monitor_id === monitor.id)
+            const derived: CloudflarePagesProjectConfig[] = []
+            const functionsNames = new Set<string>()
+            for (const s of managed) {
+              const projectTag = s.tags.find((t) => t.startsWith('project:'))
+              if (!projectTag) continue
+              const projectName = projectTag.slice(8)
+              if (s.tags.includes('functions')) {
+                functionsNames.add(projectName)
+              } else if (!derived.find((d) => d.name === projectName)) {
+                derived.push({ name: projectName, branches: [], environments: ['production'], collect_metrics: false })
+              }
             }
-          }
-          if (derived.length > 0) {
-            for (const p of derived) {
-              if (functionsNames.has(p.name)) p.collect_metrics = true
+            if (derived.length > 0) {
+              for (const p of derived) {
+                if (functionsNames.has(p.name)) p.collect_metrics = true
+              }
+              setProjects(derived)
             }
-            setProjects(derived)
+            projectsInitializedRef.current = true
           }
         }
         // Don't populate token - it's encrypted
@@ -77,8 +91,13 @@ export function MonitorForm({ monitorId, onClose }: MonitorFormProps) {
 
   // Merge discovered projects into list (from backend discover query for existing monitors)
   useEffect(() => {
-    if (discovered?.success && discovered.projects) {
-      mergeDiscoveredProjects(discovered.projects)
+    if (discovered) {
+      if (discovered.success && discovered.projects) {
+        setDiscoverError(null)
+        mergeDiscoveredProjects(discovered.projects)
+      } else if (!discovered.success) {
+        setDiscoverError(discovered.error || 'Failed to discover projects')
+      }
     }
   }, [discovered])
 
@@ -100,6 +119,7 @@ export function MonitorForm({ monitorId, onClose }: MonitorFormProps) {
 
   const handleRefresh = async () => {
     setRefreshing(true)
+    setDiscoverError(null)
     try {
       if (monitorId) {
         // Existing monitor: invalidate discover query to re-fetch via stored credential
@@ -109,6 +129,8 @@ export function MonitorForm({ monitorId, onClose }: MonitorFormProps) {
         const result = await credentialDiscoverMutation.mutateAsync(credentialId)
         if (result.success && result.projects) {
           mergeDiscoveredProjects(result.projects)
+        } else if (!result.success) {
+          setDiscoverError(result.error || 'Failed to discover projects')
         }
       } else if (apiToken && accountId) {
         // New monitor with inline token: use test connection
@@ -120,8 +142,12 @@ export function MonitorForm({ monitorId, onClose }: MonitorFormProps) {
         })
         if (result.success && result.projects) {
           mergeDiscoveredProjects(result.projects)
+        } else if (!result.success) {
+          setDiscoverError(result.error || 'Failed to discover projects')
         }
       }
+    } catch (err) {
+      setDiscoverError(err instanceof Error ? err.message : 'Failed to discover projects')
     } finally {
       setRefreshing(false)
     }
@@ -343,6 +369,11 @@ export function MonitorForm({ monitorId, onClose }: MonitorFormProps) {
             Refresh
           </button>
         </div>
+        {(discoverError || discoverQueryError) && (
+          <p className="text-sm text-destructive">
+            {discoverError || (discoverQueryError instanceof Error ? discoverQueryError.message : 'Failed to discover projects')}
+          </p>
+        )}
         {projects.length === 0 ? (
           <p className="text-sm text-muted-foreground py-4 text-center">
             No projects configured. Use Refresh to discover projects.
